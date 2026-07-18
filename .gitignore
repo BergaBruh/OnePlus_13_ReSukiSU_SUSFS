@@ -3,5 +3,6 @@ GEMINI.md
 .DS_Store
 opencode.json
 .worktrees/
+.op13-baseline/
 .github/opencode/conflict_files.txt
 .github/opencode/conflict_summary.txt
