@@ -2,5 +2,6 @@
 GEMINI.md
 .DS_Store
 opencode.json
+.worktrees/
 .github/opencode/conflict_files.txt
 .github/opencode/conflict_summary.txt
