@@ -45,4 +45,26 @@ git -C "$source_dir" add Makefile
 git -C "$source_dir" commit --quiet --allow-empty -m "different revision"
 expect_failure verify_source "$source_dir" "$expected_commit" "6.6.118"
 
+missing_command="definitely-missing-op13-baseline-command"
+if preflight_output=$(preflight_commands git "$missing_command" 2>&1); then
+  fail "expected preflight to reject a missing command"
+fi
+[[ "$preflight_output" == *"$missing_command"* ]] ||
+  fail "preflight did not name the missing command"
+
+toolchain_dir="$tmpdir/toolchain"
+mkdir -p "$toolchain_dir/clang-r510928/bin"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$toolchain_dir/clang-r510928/bin/clang"
+chmod +x "$toolchain_dir/clang-r510928/bin/clang"
+verify_toolchain "$toolchain_dir" "r510928"
+rm "$toolchain_dir/clang-r510928/bin/clang"
+expect_failure verify_toolchain "$toolchain_dir" "r510928"
+
+build_workspace="$tmpdir/empty-build-workspace"
+if build_output=$(OP13_BASELINE_WORKDIR="$build_workspace" bash "$script" build 2>&1); then
+  fail "expected build to reject an unverified source"
+fi
+[[ "$build_output" == *"source directory is not a Git checkout"* ]] ||
+  fail "build did not stop at the source guard"
+
 printf 'PASS: OP13 baseline source guard\n'
