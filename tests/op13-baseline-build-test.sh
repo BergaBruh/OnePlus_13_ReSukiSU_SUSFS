@@ -60,6 +60,20 @@ verify_toolchain "$toolchain_dir" "r510928"
 rm "$toolchain_dir/clang-r510928/bin/clang"
 expect_failure verify_toolchain "$toolchain_dir" "r510928"
 
+modules_dir="$tmpdir/modules"
+mkdir -p "$modules_dir/vendor/oplus/kernel/touchpanel/kernelFwUpdate"
+git -C "$modules_dir" init --quiet
+git -C "$modules_dir" config user.name "OP13 baseline test"
+git -C "$modules_dir" config user.email "op13-baseline-test@example.invalid"
+printf 'config OPLUS_FEATURE_TEST\n' >"$modules_dir/vendor/oplus/kernel/touchpanel/kernelFwUpdate/Kconfig"
+git -C "$modules_dir" add vendor
+git -C "$modules_dir" commit --quiet -m "matching modules"
+expected_modules_commit=$(git -C "$modules_dir" rev-parse HEAD)
+
+verify_modules "$modules_dir" "$expected_modules_commit"
+rm "$modules_dir/vendor/oplus/kernel/touchpanel/kernelFwUpdate/Kconfig"
+expect_failure verify_modules "$modules_dir" "$expected_modules_commit"
+
 build_workspace="$tmpdir/empty-build-workspace"
 if build_output=$(OP13_BASELINE_WORKDIR="$build_workspace" bash "$script" build 2>&1); then
   fail "expected build to reject an unverified source"

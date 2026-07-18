@@ -7,9 +7,12 @@ readonly SOURCE_COMMIT="d7067f0ef3dd7c9a48818c80f9cc4e34920e4f83"
 readonly EXPECTED_SOURCE_VERSION="6.6.118"
 readonly WORKSPACE="${OP13_BASELINE_WORKDIR:-$REPO_ROOT/.op13-baseline}"
 readonly MIN_FREE_KB=$((80 * 1024 * 1024))
+readonly MODULES_REMOTE="https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8750.git"
+readonly MODULES_COMMIT="6fc9d867b7e58a290b275e91f3fbbdde82749bfa"
 readonly CLANG_REMOTE="https://git.codelinaro.org/clo/la/kernelplatform/prebuilts-master/clang/host/linux-x86.git"
 readonly CLANG_COMMIT="b099698c583b8361ca771f3cc8d6af6f729f39b3"
 readonly CLANG_VERSION="r510928"
+readonly HOSTCFLAGS_WORKAROUND="-Wno-error=incompatible-pointer-types-discards-qualifiers"
 readonly -a REQUIRED_HOST_TOOLS=(
   git make bc bison flex openssl perl python3 pahole file sha256sum df nproc tee
 )
@@ -25,6 +28,7 @@ Usage: scripts/op13-baseline-build.sh <action>
 
 Actions:
   fetch-source   Clone the pinned OP13 baseline source into .op13-baseline/source.
+  fetch-modules  Clone the matching OnePlus module tree and create the expected source layout.
   fetch-toolchain Clone the pinned Android Clang toolchain into .op13-baseline/toolchains/clang.
   preflight      Check required host tools and available disk space.
   build          Build the source's sun 4K Image after all guards pass.
@@ -130,6 +134,59 @@ verify_toolchain() {
   printf 'Verified Android Clang %s: %s\n' "$clang_version" "$clang"
 }
 
+verify_modules() {
+  local modules_dir=$1
+  local expected_commit=$2
+  local actual_commit
+
+  [[ -d "$modules_dir/.git" ]] || {
+    fail "modules directory is not a Git checkout: $modules_dir"
+    return
+  }
+
+  actual_commit=$(git -C "$modules_dir" rev-parse HEAD) || {
+    fail "cannot resolve modules commit: $modules_dir"
+    return
+  }
+  [[ "$actual_commit" == "$expected_commit" ]] || {
+    fail "unexpected modules commit: got $actual_commit, expected $expected_commit"
+    return
+  }
+  [[ -f "$modules_dir/vendor/oplus/kernel/touchpanel/kernelFwUpdate/Kconfig" ]] || {
+    fail "missing linked OnePlus module Kconfig: $modules_dir/vendor/oplus/kernel/touchpanel/kernelFwUpdate/Kconfig"
+    return
+  }
+
+  printf 'Verified OnePlus modules: %s\n' "$actual_commit"
+}
+
+clone_pinned_checkout() {
+  local remote=$1
+  local commit=$2
+  local destination=$3
+  local staging_root
+  local staging_dir
+
+  staging_root=$(mktemp -d "${TMPDIR:-/tmp}/op13-baseline-fetch.XXXXXX") || return
+  staging_dir="$staging_root/checkout"
+
+  if ! git clone --filter=blob:none "$remote" "$staging_dir" ||
+    ! git -C "$staging_dir" checkout --detach "$commit"; then
+    rm -rf "$staging_root"
+    return 1
+  fi
+
+  if [[ -d "$destination" ]]; then
+    rmdir "$destination" || {
+      rm -rf "$staging_root"
+      fail "refusing to replace non-empty destination: $destination"
+      return
+    }
+  fi
+  mv "$staging_dir" "$destination"
+  rmdir "$staging_root"
+}
+
 fetch_source() {
   local source_dir="$WORKSPACE/source"
 
@@ -151,9 +208,46 @@ fetch_source() {
   fi
 
   mkdir -p "$WORKSPACE"
-  git clone --filter=blob:none "$SOURCE_REMOTE" "$source_dir"
-  git -C "$source_dir" checkout --detach "$SOURCE_COMMIT"
+  clone_pinned_checkout "$SOURCE_REMOTE" "$SOURCE_COMMIT" "$source_dir"
   verify_source "$source_dir" "$SOURCE_COMMIT" "$EXPECTED_SOURCE_VERSION"
+}
+
+fetch_modules() {
+  local modules_dir="$WORKSPACE/modules"
+  local modules_link="$WORKSPACE/sm8750-modules"
+
+  if [[ -e "$modules_dir" ]]; then
+    if [[ -d "$modules_dir/.git" ]]; then
+      verify_modules "$modules_dir" "$MODULES_COMMIT" || return
+    else
+      [[ -d "$modules_dir" ]] || {
+        fail "refusing to use non-directory modules path: $modules_dir"
+        return
+      }
+      [[ -z "$(find "$modules_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]] || {
+        fail "refusing to use non-empty non-Git modules directory: $modules_dir"
+        return
+      }
+      clone_pinned_checkout "$MODULES_REMOTE" "$MODULES_COMMIT" "$modules_dir"
+      verify_modules "$modules_dir" "$MODULES_COMMIT"
+    fi
+  else
+    mkdir -p "$WORKSPACE"
+    clone_pinned_checkout "$MODULES_REMOTE" "$MODULES_COMMIT" "$modules_dir"
+    verify_modules "$modules_dir" "$MODULES_COMMIT"
+  fi
+
+  if [[ -L "$modules_link" ]]; then
+    [[ "$(readlink "$modules_link")" == "modules/vendor" ]] || {
+      fail "unexpected sm8750-modules link target: $modules_link"
+      return
+    }
+  elif [[ -e "$modules_link" ]]; then
+    fail "refusing to replace existing sm8750-modules path: $modules_link"
+    return
+  else
+    ln -s "modules/vendor" "$modules_link"
+  fi
 }
 
 fetch_toolchain() {
@@ -185,8 +279,7 @@ fetch_toolchain() {
   fi
 
   mkdir -p "$WORKSPACE/toolchains"
-  git clone --filter=blob:none "$CLANG_REMOTE" "$toolchain_dir"
-  git -C "$toolchain_dir" checkout --detach "$CLANG_COMMIT"
+  clone_pinned_checkout "$CLANG_REMOTE" "$CLANG_COMMIT" "$toolchain_dir"
   verify_toolchain "$toolchain_dir" "$CLANG_VERSION"
 }
 
@@ -229,11 +322,17 @@ build() {
   local log_dir="$WORKSPACE/logs"
   local log_file
   local jobs="${OP13_BASELINE_JOBS:-$(nproc)}"
+  local hostcflags="${HOSTCFLAGS:-}"
 
   verify_source "$source_dir" "$SOURCE_COMMIT" "$EXPECTED_SOURCE_VERSION" || return
   preflight || return
   verify_toolchain "$toolchain_dir" "$CLANG_VERSION" || return
+  verify_modules "$WORKSPACE/modules" "$MODULES_COMMIT" || return
   verify_sun_build_inputs "$source_dir" || return
+
+  if [[ " $hostcflags " != *" $HOSTCFLAGS_WORKAROUND "* ]]; then
+    hostcflags="${hostcflags:+$hostcflags }$HOSTCFLAGS_WORKAROUND"
+  fi
 
   mkdir -p "$out_dir" "$log_dir"
   log_file="$log_dir/sun-4k-$(date -u +%Y%m%dT%H%M%SZ).log"
@@ -245,12 +344,14 @@ build() {
     "$source_dir/arch/arm64/configs/vendor/sun_perf.config" \
     "$source_dir/arch/arm64/configs/consolidate.fragment" \
     "$source_dir/arch/arm64/configs/vendor/sun_consolidate.config"
-  run_logged "$log_file" make -C "$source_dir" O="$out_dir" ARCH=arm64 LLVM=1 olddefconfig
+  run_logged "$log_file" env HOSTCFLAGS="$hostcflags" \
+    make -C "$source_dir" O="$out_dir" ARCH=arm64 LLVM=1 olddefconfig
   grep -qx 'CONFIG_ARM64_4K_PAGES=y' "$out_dir/.config" || {
     fail "sun build configuration did not resolve to 4K pages"
     return
   }
-  run_logged "$log_file" make -C "$source_dir" O="$out_dir" ARCH=arm64 LLVM=1 -j"$jobs" Image
+  run_logged "$log_file" env HOSTCFLAGS="$hostcflags" \
+    make -C "$source_dir" O="$out_dir" ARCH=arm64 LLVM=1 -j"$jobs" Image
 
   [[ -s "$out_dir/arch/arm64/boot/Image" ]] || {
     fail "sun 4K build completed without Image output"
@@ -283,6 +384,13 @@ main() {
         return
       }
       fetch_source
+      ;;
+    fetch-modules)
+      [[ $# -eq 1 ]] || {
+        fail "fetch-modules does not accept arguments"
+        return
+      }
+      fetch_modules
       ;;
     build)
       [[ $# -eq 1 ]] || {
