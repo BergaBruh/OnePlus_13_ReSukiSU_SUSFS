@@ -27,6 +27,12 @@ jobs:
   build-op13-global:
     name: OP13 Global OOS16 6.6.118
     runs-on: ubuntu-latest
+    outputs:
+      kernel_version: ${{ steps.build.outputs.kernel_version }}
+      ksu_version: ${{ steps.build.outputs.ksu_version }}
+      susfs_version: ${{ steps.build.outputs.susfs_version }}
+      zip_name: ${{ steps.build.outputs.zip_name }}
+      zip_sha256: ${{ steps.build.outputs.zip_sha256 }}
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_LOGFILE: ${{ github.workspace }}/ccache.log
@@ -93,3 +99,86 @@ jobs:
             echo "- Package: \`${{ steps.build.outputs.zip_name }}\`"
             echo "- SHA-256: \`${{ steps.build.outputs.zip_sha256 }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  release-op13-global:
+    name: Release OP13 Global OOS16 6.6.118
+    needs: build-op13-global
+    runs-on: ubuntu-latest
+    env:
+      EXPECTED_KMI: 6.6.118-android15-8-g2e6b9c3812c5-ab15114928-4k
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      KERNEL_VERSION: ${{ needs.build-op13-global.outputs.kernel_version }}
+      KSU_VERSION: ${{ needs.build-op13-global.outputs.ksu_version }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
+      RUN_NUMBER: ${{ github.run_number }}
+      SUSFS_VERSION: ${{ needs.build-op13-global.outputs.susfs_version }}
+      WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      ZIP_NAME: ${{ needs.build-op13-global.outputs.zip_name }}
+      ZIP_SHA256: ${{ needs.build-op13-global.outputs.zip_sha256 }}
+    steps:
+      - name: Download flashable ZIP artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ needs.build-op13-global.outputs.zip_name }}
+          path: release-dist
+
+      - name: Create GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${KERNEL_VERSION:?missing kernel version output}"
+          : "${KSU_VERSION:?missing ReSukiSU version output}"
+          : "${SUSFS_VERSION:?missing SUSFS version output}"
+          : "${ZIP_NAME:?missing ZIP name output}"
+          : "${ZIP_SHA256:?missing ZIP SHA-256 output}"
+
+          if [[ "$ZIP_NAME" == */* || "$ZIP_NAME" != *.zip || "$ZIP_NAME" == *[!A-Za-z0-9._-]* ]]; then
+            echo "::error::Unexpected ZIP artifact name: $ZIP_NAME"
+            exit 1
+          fi
+
+          if [[ ! "$ZIP_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Unexpected ZIP SHA-256 output: $ZIP_SHA256"
+            exit 1
+          fi
+
+          zip_path="release-dist/${ZIP_NAME}"
+          mapfile -t release_files < <(find release-dist -maxdepth 1 -type f -print)
+          if [[ "${#release_files[@]}" -ne 1 || "${release_files[0]}" != "$zip_path" ]]; then
+            echo "::error::Release artifact download must contain only $zip_path"
+            printf 'Found file: %s\n' "${release_files[@]:-none}"
+            exit 1
+          fi
+
+          actual_sha256="$(sha256sum "$zip_path" | awk '{print $1}')"
+          if [[ "$actual_sha256" != "$ZIP_SHA256" ]]; then
+            echo "::error::Downloaded ZIP SHA-256 does not match build output"
+            echo "expected=$ZIP_SHA256"
+            echo "actual=$actual_sha256"
+            exit 1
+          fi
+
+          release_tag="op13-global-oos16-6.6.118-r${RUN_NUMBER}-a${RUN_ATTEMPT}"
+          release_title="OP13 Global (CPH2653) OOS16 6.6.118 build r${RUN_NUMBER}"
+          release_notes="$RUNNER_TEMP/op13-global-oos16-6.6.118-release.md"
+
+          {
+            printf 'OP13 Global (CPH2653) manual build for OOS16 / kernel 6.6.118.\n'
+            printf '\n'
+            printf -- '- Expected KMI: `%s`\n' "$EXPECTED_KMI"
+            printf -- '- Build kernel output: `%s`\n' "$KERNEL_VERSION"
+            printf -- '- ReSukiSU: %s\n' "$KSU_VERSION"
+            printf -- '- SUSFS: %s\n' "$SUSFS_VERSION"
+            printf -- '- Package ZIP: `%s`\n' "$ZIP_NAME"
+            printf -- '- SHA-256: `%s`\n' "$ZIP_SHA256"
+            printf -- '- Workflow: %s\n' "$WORKFLOW_URL"
+            printf '\n'
+            printf 'Warning: this is an AnyKernel3 package, not a KernelSU module. No .tzst cache asset belongs in this release.\n'
+          } > "$release_notes"
+
+          gh release create "$release_tag" "$zip_path" \
+            --title "$release_title" \
+            --notes-file "$release_notes" \
+            --target "$GITHUB_SHA"
