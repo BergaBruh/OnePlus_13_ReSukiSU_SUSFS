@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔥 Huangdihd's Fork of Wild Kernels for OnePlus (Oppo/Realme)
+# 🔥 BergaBruh's Fork of Wild Kernels for OnePlus 13
 
 [![KernelSU](https://img.shields.io/badge/KernelSU-Supported-green)](https://kernelsu.org/)
 [![ReSukiSU](https://img.shields.io/badge/ReSukiSU-Supported-green)](https://resukisu.github.io/)
@@ -37,10 +37,7 @@ Flashing this kernel will not void your warranty, but there is always a risk of 
 
 | Kernel | Repository | Status |
 |--------|------------|--------|
-| 🏗️ **GKI** | [GKI_KernelSU_SUSFS](https://github.com/WildKernels/GKI_KernelSU_SUSFS) | ✅ Active |
-| 👑 **Sultan** | [Sultan_KernelSU_SUSFS](https://github.com/WildKernels/Sultan_KernelSU_SUSFS) | ✅ Active |
 | 📱 **OnePlus/Oppo/Realme** | [OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS) | ✅ Active |
-| 📱 **Samsung** | [Samsung_KernelSU_SUSFS](https://github.com/WildKernels/Samsung_KernelSU_SUSFS) | ✅ Active |
 </div>
 
 ---
@@ -129,25 +126,3 @@ You can also find Installation instructions in the release notes.
 If you encounter any issues or need help, feel free to:
 - 🐛 Open an issue in this repository
 - 💬 Reach out to me directly
-
----
-
-## 📱 Connect With Us
-
-<div align="center">
-  
-[![Telegram](https://img.shields.io/badge/Telegram-huangdihd-blue?logo=telegram)](https://t.me/huangdihd)
-[![Telegram Group](https://img.shields.io/badge/Telegram-huangdihd_wildkernel-blue?logo=telegram)](https://t.me/huangdihd_wildkernel)
-
-</div>
-
----
-
-## 💝 Donations
-
-Any and all donations are appreciated!
-
-PayPal: [paypal.me/fatalcoder524](https://paypal.me/fatalcoder524)
-
-DM on Telegram for UPI donations!
-
