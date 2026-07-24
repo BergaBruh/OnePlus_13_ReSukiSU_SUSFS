@@ -72,4 +72,7 @@ custom_patch_guards=$(grep -c "env.OP_CUSTOM_PATCHES == 'true'" "$build_action" 
 [[ "$custom_patch_guards" -ge 5 ]] ||
   fail "optional WildKernels patches must be guarded for the OP13-only workflow"
 
+grep -q 'CONFIG_FAKE_DISABLE="${CONFIG_FAKE_DISABLE:-}"' "$build_action" ||
+  fail "build must initialise the optional fake-config exclusion list"
+
 printf 'PASS: OP13 Global OOS16 6.6.118 action contract\n'

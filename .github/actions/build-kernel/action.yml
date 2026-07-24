@@ -2024,6 +2024,7 @@ runs:
         PYTHONWARNINGS: "ignore:invalid escape sequence"
       run: |
         set -euo pipefail
+        CONFIG_FAKE_DISABLE="${CONFIG_FAKE_DISABLE:-}"
         echo "::group::Build kernel with ccache optimization"
         
         cd "$COMMON_KERNEL_FOLDER"
