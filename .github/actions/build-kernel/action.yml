@@ -42,6 +42,11 @@ inputs:
     required: false
     type: boolean
     default: false
+  archive_final_zip:
+    description: 'Wrap the final ZIP in a GitHub artifact archive so a later job can download the original ZIP file'
+    required: false
+    type: boolean
+    default: false
   github_token:
     description: 'GitHub Token'
     required: true
@@ -2564,7 +2569,7 @@ runs:
       with:
         name: ${{ env.ZIP_NAME }}
         path: ${{ env.ARTIFACTS_FOLDER }}/${{ env.ZIP_NAME }}
-        archive: false
+        archive: ${{ inputs.archive_final_zip }}
         compression-level: 0
         retention-days: 90
 

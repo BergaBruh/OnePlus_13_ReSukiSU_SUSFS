@@ -86,6 +86,7 @@ jobs:
           optimize_level: ${{ inputs.optimize_level }}
           clean: ${{ inputs.clean_build }}
           debug: ${{ inputs.debug }}
+          archive_final_zip: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish build summary

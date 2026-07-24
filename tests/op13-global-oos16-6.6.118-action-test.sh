@@ -61,6 +61,14 @@ grep -q 'ReSukiSU' "$workflow" || fail "workflow does not select ReSukiSU"
 grep -q 'b0b73beb24341b7029a866005e9578ab58aa2df7' "$workflow" || fail "workflow is missing ReSukiSU pin"
 grep -q '069baca65e58557019dbf906e802f518428c5a84' "$workflow" || fail "workflow is missing SUSFS pin"
 ! grep -q 'matrix:' "$workflow" || fail "workflow must not build a model matrix"
+grep -q '^  archive_final_zip:$' "$build_action" ||
+  fail "build action must expose an opt-in final ZIP archive setting"
+grep -A4 '^  archive_final_zip:$' "$build_action" | grep -q 'default: false' ||
+  fail "final ZIP archive setting must default to false for existing workflows"
+grep -q 'archive: \${{ inputs.archive_final_zip }}' "$build_action" ||
+  fail "final ZIP upload must use the opt-in archive setting"
+grep -q 'archive_final_zip: true' "$workflow" ||
+  fail "OP13 release workflow must preserve the original final ZIP artifact"
 
 python3 - "$workflow" <<'PY'
 import sys
