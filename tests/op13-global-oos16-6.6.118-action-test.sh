@@ -6,6 +6,7 @@ config="$repo_root/configs/oos16/OP13-GLOBAL-6.6.118.json"
 manifest="$repo_root/manifests/oos16/oneplus_13_global_6.6.118_w.xml"
 workflow="$repo_root/.github/workflows/build-op13-global-oos16-6.6.118.yml"
 build_action="$repo_root/.github/actions/build-kernel/action.yml"
+source_sync_action="$repo_root/.github/actions/kernel-source-sync/action.yml"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -62,5 +63,8 @@ grep -q '069baca65e58557019dbf906e802f518428c5a84' "$workflow" || fail "workflow
 
 grep -q 'ReSukiSU/ReSukiSU/\$RESUKISU_SETUP_REF/kernel/setup.sh' "$build_action" ||
   fail "ReSukiSU setup script must use the requested pinned ref"
+
+grep -q 'cache miss; downloading directly' "$source_sync_action" ||
+  fail "source sync must fall back to direct pinned archives when its cache is cold"
 
 printf 'PASS: OP13 Global OOS16 6.6.118 action contract\n'
