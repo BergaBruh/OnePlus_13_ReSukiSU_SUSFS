@@ -962,10 +962,12 @@ runs:
         cd "$KERNEL_PLATFORM_FOLDER"
         echo "Adding ReSukiSU..."
         
-        if [ "${{ inputs.ksu_branch_or_hash }}" = "" ]; then
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -
+        RESUKISU_REF="${{ inputs.ksu_branch_or_hash }}"
+        RESUKISU_SETUP_REF="${RESUKISU_REF:-main}"
+        if [ -z "$RESUKISU_REF" ]; then
+          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/$RESUKISU_SETUP_REF/kernel/setup.sh" | bash -
         else
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s "${{ inputs.ksu_branch_or_hash }}"
+          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/$RESUKISU_SETUP_REF/kernel/setup.sh" | bash -s "$RESUKISU_REF"
         fi
         
         cd KernelSU
