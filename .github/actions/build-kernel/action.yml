@@ -111,6 +111,9 @@ runs:
         set -euo pipefail
         echo '${{ inputs.op_config_json }}' > /tmp/config.json
         jq -r 'to_entries[] | "OP_\(.key | ascii_upcase)=\(.value)"' /tmp/config.json >> "$GITHUB_ENV"
+        if ! jq -e 'has("custom_patches")' /tmp/config.json >/dev/null; then
+          echo "OP_CUSTOM_PATCHES=true" >> "$GITHUB_ENV"
+        fi
         echo "Parsed config:"
         jq '.' /tmp/config.json
 
@@ -142,6 +145,7 @@ runs:
         bindgen="$OP_BINDGEN"
         ds="$OP_DS"
         ntsync="$OP_NTSYNC"
+        custom_patches="${OP_CUSTOM_PATCHES:-true}"
         optimize='${{ inputs.optimize_level }}'
         
         errors=()
@@ -278,6 +282,10 @@ runs:
           errors+=("Input 'ntsync' cannot be empty")
         elif [[ "$ntsync" != "true" && "$ntsync" != "false" ]]; then
           errors+=("Input 'ntsync' contains invalid characters. Allowed: 'true' or 'false'. Got: '$ntsync'")
+        fi
+
+        if [[ "$custom_patches" != "true" && "$custom_patches" != "false" ]]; then
+          errors+=("Input 'custom_patches' must be 'true' or 'false'. Got: '$custom_patches'")
         fi
         
         case "$optimize" in
@@ -1243,6 +1251,7 @@ runs:
 
     - name: Apply Other Patches
       shell: bash
+      if: ${{ env.OP_CUSTOM_PATCHES == 'true' }}
       run: |
         set -euo pipefail
         echo "::group::Apply Other patches"
@@ -1673,6 +1682,7 @@ runs:
 
     - name: Add Tmpfs Support
       shell: bash
+      if: ${{ env.OP_CUSTOM_PATCHES == 'true' }}
       run: |
         set -euo pipefail
         echo "Add Tmpfs Support"
@@ -1756,6 +1766,7 @@ runs:
     
     - name: Add USB DWC3 & OTG Support
       shell: bash
+      if: ${{ env.OP_CUSTOM_PATCHES == 'true' }}
       run: |
         set -euo pipefail
         echo "::group::Add USB DWC3 Configuration"
@@ -1898,6 +1909,7 @@ runs:
 
     - name: Add Build based configs
       shell: bash
+      if: ${{ env.OP_CUSTOM_PATCHES == 'true' }}
       run: |
         set -euo pipefail
         echo "Add Build based configs"
@@ -1985,6 +1997,7 @@ runs:
 
     - name: Apply Fake config.gz patch
       shell: bash
+      if: ${{ env.OP_CUSTOM_PATCHES == 'true' }}
       run: |
         set -euo pipefail
         echo "Apply Fake config.gz patch"

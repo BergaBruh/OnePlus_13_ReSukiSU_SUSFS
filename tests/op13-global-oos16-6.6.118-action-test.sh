@@ -31,6 +31,7 @@ expected = {
     "kernel_version": "6.6",
     "os_version": "OOS16",
     "susfs": True,
+    "custom_patches": False,
     "hmbird": False,
     "bbg": False,
     "bbr": False,
@@ -66,5 +67,9 @@ grep -q 'ReSukiSU/ReSukiSU/\$RESUKISU_SETUP_REF/kernel/setup.sh' "$build_action"
 
 grep -q 'cache miss; downloading directly' "$source_sync_action" ||
   fail "source sync must fall back to direct pinned archives when its cache is cold"
+
+custom_patch_guards=$(grep -c "env.OP_CUSTOM_PATCHES == 'true'" "$build_action" || true)
+[[ "$custom_patch_guards" -ge 5 ]] ||
+  fail "optional WildKernels patches must be guarded for the OP13-only workflow"
 
 printf 'PASS: OP13 Global OOS16 6.6.118 action contract\n'
