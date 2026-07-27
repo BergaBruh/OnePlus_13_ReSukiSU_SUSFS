@@ -19,6 +19,10 @@ on:
         required: true
         type: boolean
         default: false
+  push:
+    branches: [main]
+    paths:
+      - .github/update-state/op13-upstreams.json
 
 permissions:
   contents: write
@@ -73,7 +77,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          state=.github/update-state/op13-upstreams.json
           echo "json=$(jq -c . configs/oos16/OP13-GLOBAL-6.6.118.json)" >> "$GITHUB_OUTPUT"
+          echo "resukisu_sha=$(jq -er '.sources.resukisu.sha' "$state")" >> "$GITHUB_OUTPUT"
+          echo "susfs_sha=$(jq -er '.sources.susfs.sha' "$state")" >> "$GITHUB_OUTPUT"
 
       - name: Build OP13 Global kernel
         id: build
@@ -81,11 +88,11 @@ jobs:
         with:
           op_config_json: ${{ steps.config.outputs.json }}
           ksu_type: ReSukiSU
-          ksu_branch_or_hash: b0b73beb24341b7029a866005e9578ab58aa2df7
-          susfs_commit_hash_or_branch: 069baca65e58557019dbf906e802f518428c5a84
-          optimize_level: ${{ inputs.optimize_level }}
-          clean: ${{ inputs.clean_build }}
-          debug: ${{ inputs.debug }}
+          ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_sha }}
+          susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_sha }}
+          optimize_level: ${{ inputs.optimize_level || 'O2' }}
+          clean: ${{ inputs.clean_build || false }}
+          debug: ${{ inputs.debug || false }}
           archive_final_zip: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -166,7 +173,7 @@ jobs:
           release_notes="$RUNNER_TEMP/op13-global-oos16-6.6.118-release.md"
 
           {
-            printf 'OP13 Global (CPH2653) manual build for OOS16 / kernel 6.6.118.\n'
+            printf 'OP13 Global (CPH2653) build for OOS16 / kernel 6.6.118.\n'
             printf '\n'
             printf -- '- Expected KMI: `%s`\n' "$EXPECTED_KMI"
             printf -- '- Build kernel output: `%s`\n' "$KERNEL_VERSION"
