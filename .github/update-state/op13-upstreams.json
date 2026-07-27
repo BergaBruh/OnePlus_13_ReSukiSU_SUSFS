@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "target": {
+    "device": "OnePlus 13 Global",
+    "model": "CPH2653",
+    "oxygenos": "16.0.9.401(EX01)",
+    "kernel": "6.6.118"
+  },
+  "sources": {
+    "kernel_common": {
+      "repository": "OnePlusOSS/android_kernel_common_oneplus_sm8750",
+      "sha": "e1b346b6b4f4096eb342ae3684838a942fd6f6c4"
+    },
+    "kernel_modules": {
+      "repository": "OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8750",
+      "sha": "d50b305f7da9e14715a25120a4ac7b1a4b8b97c3"
+    },
+    "resukisu": {
+      "repository": "ReSukiSU/ReSukiSU",
+      "ref": "main",
+      "sha": "b0b73beb24341b7029a866005e9578ab58aa2df7"
+    },
+    "susfs": {
+      "repository": "https://gitlab.com/simonpunk/susfs4ksu",
+      "ref": "gki-android15-6.6",
+      "sha": "069baca65e58557019dbf906e802f518428c5a84"
+    }
+  }
+}
