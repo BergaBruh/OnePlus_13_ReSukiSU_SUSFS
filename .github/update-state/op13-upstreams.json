@@ -1,24 +1,33 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "target": {
     "device": "OnePlus 13 Global",
     "model": "CPH2653",
+    "firmware_family": "OxygenOS",
+    "firmware_version": "16.0.9.401(EX01)",
+    "userspace_android_version": "android16",
+    "kernel_kmi_android_generation": "android15",
+    "linux_kernel_version": "6.6.118",
+    "kmi": "6.6.118-android15-8-g2e6b9c3812c5-ab15114928-4k",
+    "kernel_source_release_tag": "android15-6.6-2026-01_r22",
     "oxygenos": "16.0.9.401(EX01)",
     "kernel": "6.6.118"
   },
   "sources": {
     "kernel_common": {
       "repository": "OnePlusOSS/android_kernel_common_oneplus_sm8750",
+      "ref": "oneplus/sm8750_b_16.0.0_oneplus_13",
       "sha": "e1b346b6b4f4096eb342ae3684838a942fd6f6c4"
     },
     "kernel_modules": {
       "repository": "OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8750",
+      "ref": "oneplus/sm8750_b_16.0.0_oneplus_13",
       "sha": "d50b305f7da9e14715a25120a4ac7b1a4b8b97c3"
     },
     "resukisu": {
       "repository": "ReSukiSU/ReSukiSU",
       "ref": "main",
-      "sha": "0b4f56fd92bcc47a24bd4add8d7125239531c4f5"
+      "sha": "d5ba3d2d51a4c5b41a182112faa13c02b98e31a1"
     },
     "susfs": {
       "repository": "https://gitlab.com/simonpunk/susfs4ksu",
