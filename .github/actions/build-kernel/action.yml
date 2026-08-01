@@ -1294,7 +1294,22 @@ runs:
           HMBIRD_OS="${OP_OS_VERSION/OOS/A}"
           dos2unix "$FENGCHI_DIR/fengchi_${HMBIRD_MODEL}_${HMBIRD_OS}.patch"
           if ! patch -p1 --fuzz=2 < "$FENGCHI_DIR/fengchi_${HMBIRD_MODEL}_${HMBIRD_OS}.patch"; then
-            echo "::warning::hmbird fengchi patch did not apply cleanly. Continuing without it."
+            echo "::warning::hmbird fengchi patch did not apply cleanly. Applying known compatibility fallbacks."
+            if [ -f kernel/fork.c.rej ] && grep -Fq 'sched_ext_free(tsk);' kernel/fork.c.rej; then
+              sched_ext_free_count=$(grep -cFx $'\tsched_ext_free(tsk);' kernel/fork.c || true)
+              if [ "$sched_ext_free_count" -eq 1 ]; then
+                perl -0pi -e 's/\tsched_ext_free\(tsk\);\n/#ifdef CONFIG_HMBIRD_SCHED\n\thmbird_free(tsk);\n#endif\n/' kernel/fork.c
+                if grep -Fq 'sched_ext_free(tsk);' kernel/fork.c; then
+                  echo "::error::Failed to adapt kernel/fork.c for HMBIRD"
+                  exit 1
+                fi
+                rm kernel/fork.c.rej
+                echo "Applied HMBIRD kernel/fork.c compatibility fallback"
+              else
+                echo "::error::Expected one sched_ext_free() call for the HMBIRD fallback, found $sched_ext_free_count"
+                exit 1
+              fi
+            fi
             find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
             find . -name "*.rej" -delete 2>/dev/null || true
           fi
