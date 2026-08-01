@@ -190,7 +190,11 @@ jobs:
           fi
           
           # Inject KSU type and hash into every device config
-          merged_matrix=$(jq -n --argjson devices "$filtered" --arg ksu_type "$ksu_type" --arg ksu_hash "$ksu_hash" '[ $devices[] as $dev | ($dev + {ksu_type: $ksu_type, ksu_hash: $ksu_hash}) ]')
+          merged_matrix=$(jq \
+            --arg ksu_type "$ksu_type" \
+            --arg ksu_hash "$ksu_hash" \
+            '[.[] | . + {ksu_type: $ksu_type, ksu_hash: $ksu_hash}]' \
+            <<<"$filtered")
           final_count=$(echo "$merged_matrix" | jq 'length')
           
           echo "✅ Found $final_count device(s) to build"
