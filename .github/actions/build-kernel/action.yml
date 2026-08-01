@@ -1054,7 +1054,12 @@ runs:
         # Fake kernel patch to fix failures
         fake_patched=0
         fake_patched_expand=0
+        had_fold_filemap_fixup=0
         if [ "${{ env.ANDROID_VER }}" = "android15" ] && [ "${{ env.KERNEL_VER }}" = "6.6" ]; then
+          if grep -Fq '__fold_filemap_fixup_entry' ./fs/proc/task_mmu.c; then
+            had_fold_filemap_fixup=1
+          fi
+
           if ! grep -qxF $'\tunsigned int nr_subpages = __PAGE_SIZE / PAGE_SIZE;' ./fs/proc/task_mmu.c; then
             echo "nr_subpages Line not found. Fake Patching!"
             sed -i -e '/int ret = 0, copied = 0;/a \\tunsigned int nr_subpages \= __PAGE_SIZE \/ PAGE_SIZE;' -e '/int ret = 0, copied = 0;/a \\tpagemap_entry_t \*res = NULL;' ./fs/proc/task_mmu.c
@@ -1147,6 +1152,18 @@ runs:
               exit 1
             fi
             echo "Adjusted $nameidata_compat_count SUSFS set_nameidata() call(s) for the three-argument kernel API"
+          fi
+        fi
+
+        if [ "${{ env.ANDROID_VER }}" = "android15" ] && [ "${{ env.KERNEL_VER }}" = "6.6" ] && [ "$had_fold_filemap_fixup" -eq 0 ]; then
+          fold_filemap_compat_count=$(grep -Fc '__fold_filemap_fixup_entry' ./fs/proc/task_mmu.c || true)
+          if [ "$fold_filemap_compat_count" -gt 0 ]; then
+            sed -i '/__fold_filemap_fixup_entry/d' ./fs/proc/task_mmu.c
+            if grep -Fq '__fold_filemap_fixup_entry' ./fs/proc/task_mmu.c; then
+              echo "::error::Failed to remove unsupported SUSFS filemap fixup calls"
+              exit 1
+            fi
+            echo "Removed $fold_filemap_compat_count unsupported SUSFS filemap fixup call(s)"
           fi
         fi
         
