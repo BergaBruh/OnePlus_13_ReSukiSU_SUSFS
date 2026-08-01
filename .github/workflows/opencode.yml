@@ -122,11 +122,10 @@ jobs:
             # support, cache fixes, ...) in areas the fork didn't touch flow in for free.
             #
             # Only directly CONFLICTING hunks are resolved here, split by ownership:
-            #   * Fork-owned CI/docs (.github/**, README, ...) are LEFT CONFLICTED
-            #     so the opencode agent can intelligently merge upstream CI
-            #     improvements while preserving fork-specific features (ReSukiSU
-            #     branding, ccache download-once, model-link table, OOS naming,
-            #     DWC3, KSUN removal, t.me links, etc.) per guidelines.txt.
+            #   * Fork-owned CI/docs (.github/**, README, ...) take OURS so the
+            #     workflow can finish and commit the merge while MERGE_HEAD still
+            #     records upstream as the second parent. Non-conflicting upstream
+            #     edits to these paths have already been merged above.
             #   * Everything else (device configs, manifests, kernel sources) takes
             #     UPSTREAM; sanitize.py below re-applies the deterministic fork
             #     transforms (uname -> OP-RESUKISU, AnyKernel3 URL, oos* naming).
@@ -134,9 +133,11 @@ jobs:
               [ -z "$f" ] && continue
               case "$f" in
                 .github/*|README.md|compatibility.md|LICENSE)
-                  # CI/docs: skip auto-resolve. Leave conflicts for the agent
-                  # so it can merge upstream improvements while keeping fork
-                  # customizations per guidelines.txt.
+                  # The agent action flattens an unresolved merge into a
+                  # single-parent commit, so fork-owned conflicts must be
+                  # resolved here to preserve upstream ancestry.
+                  git checkout --ours -- "$f" 2>/dev/null || git rm -f --quiet -- "$f" 2>/dev/null || true
+                  git add -- "$f" 2>/dev/null || true
                   ;;
                 *)
                   # Device configs, manifests, kernel sources: take UPSTREAM;
@@ -200,8 +201,9 @@ jobs:
           CONFLICTS=$(git ls-files -u 2>/dev/null | awk '{print $4}' | sort -u | wc -l | tr -d ' ')
           if [ "$CONFLICTS" -gt 0 ]; then
             echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
-            echo "Merge has $CONFLICTS conflict file(s), agent will resolve."
-            exit 0
+            echo "skip_agent=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Deterministic upstream merge left $CONFLICTS conflict file(s); refusing the agent path because it would flatten upstream ancestry."
+            exit 1
           fi
           echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
 
@@ -212,6 +214,18 @@ jobs:
             echo "No new commits, nothing to do."
             exit 0
           fi
+
+          UPSTREAM_COMMIT=$(git rev-parse upstream/main)
+          PARENT_COUNT=$(git cat-file -p HEAD | awk '/^parent / { count++ } END { print count + 0 }')
+          if [ "$PARENT_COUNT" -ne 2 ]; then
+            echo "::error::Upstream sync commit must have exactly two parents; found $PARENT_COUNT."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$UPSTREAM_COMMIT" HEAD; then
+            echo "::error::Upstream commit $UPSTREAM_COMMIT is not an ancestor of the sync commit."
+            exit 1
+          fi
+          echo "Verified two-parent merge commit with upstream ancestry: $UPSTREAM_COMMIT"
 
           # Reuse an already-open upstream-sync PR instead of spawning a duplicate.
           # Only matches bot-managed `opencode/upstream-sync-*` branches (never the
