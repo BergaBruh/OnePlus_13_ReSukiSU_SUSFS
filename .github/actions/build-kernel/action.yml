@@ -1132,6 +1132,23 @@ runs:
             echo "Patch applied successfully with manual fallback for mm/memory.c!"
           fi
         fi
+
+        # SUSFS targets the newer four-argument API, while some OnePlus 5.10
+        # trees still expose the original three-argument set_nameidata().
+        namei_file="./fs/namei.c"
+        old_set_nameidata_call='set_nameidata(nd, old_dfd, fake_filename, NULL);'
+        new_set_nameidata_call='set_nameidata(nd, old_dfd, fake_filename);'
+        if grep -Eq 'static void set_nameidata\(struct nameidata \*p, int dfd, struct filename \*name\)' "$namei_file"; then
+          nameidata_compat_count=$(grep -Fc "$old_set_nameidata_call" "$namei_file" || true)
+          if [ "$nameidata_compat_count" -gt 0 ]; then
+            sed -i "s|$old_set_nameidata_call|$new_set_nameidata_call|g" "$namei_file"
+            if grep -Fq "$old_set_nameidata_call" "$namei_file"; then
+              echo "::error::Failed to adapt SUSFS set_nameidata() calls"
+              exit 1
+            fi
+            echo "Adjusted $nameidata_compat_count SUSFS set_nameidata() call(s) for the three-argument kernel API"
+          fi
+        fi
         
         # Revert Fake kernel patch
         if [ "$fake_patched_expand" = 1 ]; then
