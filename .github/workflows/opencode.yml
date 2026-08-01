@@ -440,6 +440,7 @@ jobs:
     # always(): still run the build even if auto-mirror failed/was skipped.
     if: always() && github.event_name == 'pull_request' && startsWith(github.event.pull_request.head.ref, 'opencode/')
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     permissions:
       actions: write
       contents: read
@@ -449,12 +450,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_BRANCH="${{ github.event.pull_request.head.ref }}"
-          gh workflow run build-kernel-release.yml --repo ${{ github.repository }} --ref "$PR_BRANCH" -f make_release=false
-          # Poll for the run we just dispatched on THIS branch (avoid grabbing another branch's run).
+          PR_SHA="${{ github.event.pull_request.head.sha }}"
+          STARTED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          gh workflow run build-kernel-release.yml \
+            --repo ${{ github.repository }} \
+            --ref "$PR_BRANCH" \
+            -f make_release=false
+          # Poll for the run just dispatched for this exact PR head. Filtering by
+          # branch alone can pick up an older cancelled run and falsely fail the PR.
           RUN_ID=""
           for _ in $(seq 1 12); do
             sleep 5
-            RUN_ID=$(gh run list --workflow=build-kernel-release.yml --branch "$PR_BRANCH" --event workflow_dispatch --limit 1 --json databaseId -q '.[0].databaseId' --repo ${{ github.repository }})
+            RUN_ID=$(gh run list \
+              --workflow=build-kernel-release.yml \
+              --branch "$PR_BRANCH" \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,createdAt,headSha \
+              --repo ${{ github.repository }} | jq -r \
+                --arg sha "$PR_SHA" \
+                --arg started "$STARTED_AT" \
+                '[.[] | select(.headSha == $sha and .createdAt >= $started)] | first | .databaseId // empty')
             [ -n "$RUN_ID" ] && break
           done
           if [ -n "$RUN_ID" ]; then
