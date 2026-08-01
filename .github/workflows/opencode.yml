@@ -455,9 +455,7 @@ jobs:
           gh workflow run build-kernel-release.yml \
             --repo ${{ github.repository }} \
             --ref "$PR_BRANCH" \
-            -f make_release=false \
-            -f op_model=android12-5.10 \
-            -f config_path=configs/oos16/OP-ACE-2.json
+            -f make_release=false
           # Poll for the run just dispatched for this exact PR head. Filtering by
           # branch alone can pick up an older cancelled run and falsely fail the PR.
           RUN_ID=""
