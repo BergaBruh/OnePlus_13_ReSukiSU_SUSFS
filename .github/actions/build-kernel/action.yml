@@ -1356,21 +1356,20 @@ runs:
               find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
               exit 1
             fi
-            sed -i 's/sched_ext_free(tsk);/hmbird_free(tsk);/' kernel/fork.c
-            perl -i -0pe 's/^[[:blank:]]*hmbird_free\(tsk\);\n/#ifdef CONFIG_HMBIRD_SCHED\n    hmbird_free(tsk);\n#endif\n/m' kernel/fork.c
-            if ! grep -qF 'hmbird_free(tsk);' kernel/fork.c
-            then
-              echo "::error::hmbird fengchi recovery did not add hmbird_free(tsk) to kernel/fork.c"
+            old_fork_hook_count=$(awk '/^[[:space:]]*sched_ext_free\(tsk\);$/ { count++ } END { print count + 0 }' kernel/fork.c)
+            if [ "$old_fork_hook_count" -ne 1 ]; then
+              echo "::error::hmbird fengchi recovery expected exactly one standalone sched_ext_free(tsk) in kernel/fork.c, found $old_fork_hook_count"
+              echo "Matching fork hooks in kernel/fork.c:"
+              awk '/CONFIG_HMBIRD_SCHED|^[[:space:]]*(sched_ext_free|hmbird_free)\(tsk\);$/ { print FNR ":" $0 }' kernel/fork.c
               exit 1
             fi
-            if ! grep -qF '#ifdef CONFIG_HMBIRD_SCHED' kernel/fork.c; then
-              echo "::error::hmbird fengchi recovery did not guard hmbird_free(tsk) with CONFIG_HMBIRD_SCHED"
+            perl -i -0pe 's/^[[:blank:]]*sched_ext_free\(tsk\);\n/#ifdef CONFIG_HMBIRD_SCHED\n    hmbird_free(tsk);\n#endif\n/m' kernel/fork.c
+            if ! grep -zqF $'#ifdef CONFIG_HMBIRD_SCHED\n    hmbird_free(tsk);\n#endif' kernel/fork.c
+            then
+              echo "::error::hmbird fengchi recovery did not add the exact CONFIG_HMBIRD_SCHED guarded hmbird_free block to kernel/fork.c"
               exit 1
             fi
-            if ! grep -qF 'sched_ext_free(tsk);' kernel/fork.c
-            then
-              :
-            else
+            if grep -qE '^[[:space:]]*sched_ext_free\(tsk\);$' kernel/fork.c; then
               echo "::error::hmbird fengchi recovery left stale sched_ext_free(tsk) in kernel/fork.c"
               exit 1
             fi

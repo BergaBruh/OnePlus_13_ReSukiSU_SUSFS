@@ -246,17 +246,23 @@ if not fengchi_failure:
 fengchi_failure_body = fengchi_failure.group("body")
 old_reject_idx = fengchi_failure_body.find("grep -qF 'sched_ext_free(tsk);' kernel/fork.c.rej")
 new_reject_idx = fengchi_failure_body.find("grep -qF 'hmbird_free(tsk);' kernel/fork.c.rej")
-replace_idx = fengchi_failure_body.find("sed -i 's/sched_ext_free(tsk);/hmbird_free(tsk);/' kernel/fork.c")
-new_hook_match = re.search(
-    re.escape("grep -qF 'hmbird_free(tsk);' kernel/fork.c") + r"(?:\s|$)",
+old_hook_count_idx = fengchi_failure_body.find(
+    "old_fork_hook_count=$(awk '/^[[:space:]]*sched_ext_free\\(tsk\\);$/ { count++ } END { print count + 0 }' kernel/fork.c)"
+)
+old_hook_count_failure_idx = fengchi_failure_body.find('[ "$old_fork_hook_count" -ne 1 ]')
+direct_transform_idx = fengchi_failure_body.find(
+    "perl -i -0pe 's/^[[:blank:]]*sched_ext_free\\(tsk\\);\\n/#ifdef CONFIG_HMBIRD_SCHED\\n    hmbird_free(tsk);\\n#endif\\n/m' kernel/fork.c"
+)
+exact_block_match = re.search(
+    re.escape("grep -zqF $'#ifdef CONFIG_HMBIRD_SCHED\\n    hmbird_free(tsk);\\n#endif' kernel/fork.c") + r"(?:\s|$)",
     fengchi_failure_body,
 )
-old_hook_match = re.search(
-    re.escape("! grep -qF 'sched_ext_free(tsk);' kernel/fork.c") + r"(?:\s|$)",
-    fengchi_failure_body,
+exact_block_idx = exact_block_match.start() if exact_block_match else -1
+old_hook_idx = (
+    fengchi_failure_body.find("grep -qE '^[[:space:]]*sched_ext_free\\(tsk\\);$' kernel/fork.c", exact_block_idx)
+    if exact_block_idx != -1
+    else -1
 )
-new_hook_idx = new_hook_match.start() if new_hook_match else -1
-old_hook_idx = old_hook_match.start() if old_hook_match else -1
 handled_reject_idx = fengchi_failure_body.find("rm -f kernel/fork.c.rej")
 remaining_reject_match = re.search(
     r"(?ms)if\s+\[\s+-n\s+\"\$\(find \. -name '\*\.rej' -print -quit\)\"\s+\];\s*then\s*$"
@@ -267,16 +273,26 @@ remaining_reject_idx = remaining_reject_match.start() if remaining_reject_match 
 ordered_hmbird_indexes = [
     old_reject_idx,
     new_reject_idx,
-    replace_idx,
-    new_hook_idx,
+    old_hook_count_idx,
+    old_hook_count_failure_idx,
+    direct_transform_idx,
+    exact_block_idx,
     old_hook_idx,
     handled_reject_idx,
     remaining_reject_idx,
 ]
 if min(ordered_hmbird_indexes) == -1:
-    raise SystemExit("HMBIRD Fengchi recovery must prove reject evidence, replace the fork hook, verify new/old hook state, remove only kernel/fork.c.rej, and check remaining rejects")
+    raise SystemExit("HMBIRD Fengchi recovery must prove reject evidence, require exactly one old fork hook, directly transform it to the exact guarded block, verify new/old hook state, remove only kernel/fork.c.rej, and check remaining rejects")
 if ordered_hmbird_indexes != sorted(ordered_hmbird_indexes) or len(set(ordered_hmbird_indexes)) != len(ordered_hmbird_indexes):
     raise SystemExit("HMBIRD Fengchi recovery checks must run in strict evidence, replace, verify, handled-reject, remaining-reject order")
+if "sed -i 's/sched_ext_free(tsk);/hmbird_free(tsk);/' kernel/fork.c" in fengchi_failure_body:
+    raise SystemExit("HMBIRD Fengchi recovery must not use an unanchored sed replacement for the fork hook")
+if "s/^[[:blank:]]*hmbird_free\\(tsk\\);" in fengchi_failure_body:
+    raise SystemExit("HMBIRD Fengchi recovery must not create hmbird_free first and wrap a later matching token")
+if re.search(re.escape("grep -qF 'hmbird_free(tsk);' kernel/fork.c") + r"(?:\s|$)", fengchi_failure_body):
+    raise SystemExit("HMBIRD Fengchi recovery must verify the exact guarded hmbird_free block, not an independent token")
+if re.search(re.escape("grep -qF '#ifdef CONFIG_HMBIRD_SCHED' kernel/fork.c") + r"(?:\s|$)", fengchi_failure_body):
+    raise SystemExit("HMBIRD Fengchi recovery must verify the exact guarded hmbird_free block, not an independent guard token")
 if re.search(r"find \. -name ['\"]\*\.rej['\"] -delete", fengchi_failure_body):
     raise SystemExit("HMBIRD Fengchi recovery must not delete all reject files generically")
 masked_reject_cleanup = re.search(
