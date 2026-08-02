@@ -183,6 +183,7 @@ jobs:
           clean: ${{ inputs.clean_build || false }}
           debug: ${{ inputs.debug || false }}
           archive_final_zip: false
+          upload_final_zip: false
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prefix and describe release ZIP

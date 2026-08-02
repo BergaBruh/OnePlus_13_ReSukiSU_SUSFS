@@ -47,6 +47,11 @@ inputs:
     required: false
     type: boolean
     default: false
+  upload_final_zip:
+    description: 'Upload the final ZIP from this action'
+    required: false
+    type: boolean
+    default: 'true'
   github_token:
     description: 'GitHub Token'
     required: true
@@ -2564,7 +2569,7 @@ runs:
         retention-days: 90
 
     - name: Upload Artifacts
-      if: success() && steps.create_zip.conclusion == 'success'
+      if: success() && steps.create_zip.conclusion == 'success' && inputs.upload_final_zip == 'true'
       uses: actions/upload-artifact@v7
       with:
         name: ${{ env.ZIP_NAME }}
