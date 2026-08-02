@@ -65,13 +65,29 @@ PY
 [[ -f "$workflow" ]] || fail "missing all-variant OP13 workflow"
 [[ -f "$build_action" ]] || fail "missing build-kernel composite action"
 
-python3 - "$build_action" "$workflow" <<'PY'
+mapfile -t tracked_workflows < <(
+  git -C "$repo_root" ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml'
+)
+
+python3 - "$build_action" "$workflow" "$repo_root" "${tracked_workflows[@]}" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 action_text = Path(sys.argv[1]).read_text(encoding="utf-8")
-workflow_text = Path(sys.argv[2]).read_text(encoding="utf-8")
+workflow_path = Path(sys.argv[2])
+workflow_text = workflow_path.read_text(encoding="utf-8")
+repo_root = Path(sys.argv[3])
+
+for relative_path in sys.argv[4:]:
+    caller_path = repo_root / relative_path
+    if caller_path == workflow_path:
+        continue
+    caller_text = caller_path.read_text(encoding="utf-8")
+    if re.search(r"(?m)^\s*upload_final_zip:\s*false\s*$", caller_text):
+        raise SystemExit(
+            f"only build-op13-all.yml may set upload_final_zip: false: {relative_path}"
+        )
 
 input_match = re.search(
     r"(?ms)^  upload_final_zip:\s*$\n(?P<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_]*:\s*$|^outputs:\s*$)",
