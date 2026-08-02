@@ -67,6 +67,11 @@ for config_path in sys.argv[2:]:
         raise SystemExit(f"{config_path}: manifest reference must resolve exactly once: {manifest}")
 PY
 
+jq -e '.susfs == true' "$repo_root/configs/oos15/OP13-6.6.30.json" >/dev/null ||
+  fail "configs/oos15/OP13-6.6.30.json must keep susfs enabled"
+jq -e '.hmbird == true' "$repo_root/configs/oos16/OP13.json" >/dev/null ||
+  fail "configs/oos16/OP13.json must keep hmbird enabled"
+
 [[ -f "$workflow" ]] || fail "missing all-variant OP13 workflow"
 [[ -f "$build_action" ]] || fail "missing build-kernel composite action"
 
@@ -170,6 +175,41 @@ if module_overlay_assignment == -1 or optimize_validation == -1:
 if "OP_CUSTOM_PATCHES" in validate_body[module_overlay_assignment:optimize_validation]:
     raise SystemExit("module_overlay validation must not inherit from custom_patches")
 
+susfs_step = re.search(
+    r"(?ms)^    - name:\s*Apply SUSFS Patches\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not susfs_step:
+    raise SystemExit("build action must retain the Apply SUSFS Patches step")
+susfs_body = susfs_step.group("body")
+susfs_patch = 'patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/50_add_susfs_in_${{ env.SUSFS_KERNEL_BRANCH }}.patch"'
+compat_decl_check = "grep -qF '__fold_filemap_fixup_entry' \"$COMMON_KERNEL_FOLDER/include/linux/page_size_compat.h\""
+compat_call_delete = "sed -i '/^[[:space:]]*__fold_filemap_fixup_entry(&((struct proc_maps_private \\*)m->private)->iter, &end);[[:space:]]*$/d'"
+susfs_revert_marker = "# Revert Fake kernel patch"
+susfs_patch_idx = susfs_body.find(susfs_patch)
+compat_decl_idx = susfs_body.find(compat_decl_check)
+compat_delete_idx = susfs_body.find(compat_call_delete)
+susfs_revert_idx = susfs_body.find(susfs_revert_marker)
+if min(susfs_patch_idx, compat_decl_idx, compat_delete_idx, susfs_revert_idx) == -1:
+    raise SystemExit("SUSFS android15-6.6 compatibility recovery must check page_size_compat.h and delete the stale task_mmu.c fixup call")
+if not susfs_patch_idx < compat_decl_idx < compat_delete_idx < susfs_revert_idx:
+    raise SystemExit("SUSFS compatibility recovery must run after the SUSFS patch attempt and before fake-patch rollback")
+susfs_compat_region = susfs_body[compat_delete_idx:susfs_revert_idx]
+for required, message in [
+    (
+        "__fold_filemap_fixup_entry(&((struct proc_maps_private *)m->private)->iter, &end);",
+        "SUSFS compatibility postcondition must check for the exact stale task_mmu.c fixup call",
+    ),
+    (
+        "! grep -qF '__fold_filemap_fixup_entry' \"$COMMON_KERNEL_FOLDER/include/linux/page_size_compat.h\"",
+        "SUSFS compatibility postcondition must verify the declaration is absent before failing",
+    ),
+    ("::error::", "SUSFS compatibility postcondition must emit an actionable error"),
+    ("exit 1", "SUSFS compatibility postcondition must fail the build when the stale call remains undeclared"),
+]:
+    if required not in susfs_compat_region:
+        raise SystemExit(message)
+
 ccache_step = re.search(
     r"(?ms)^    - name:\s*Check and Prepare Caches\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
     action_text,
@@ -195,6 +235,28 @@ for forbidden, message in [
 ]:
     if forbidden in apply_other_body:
         raise SystemExit(message)
+fengchi_failure = re.search(
+    r"(?ms)if ! patch -p1 --fuzz=2 < \"\$FENGCHI_DIR/fengchi_\$\{HMBIRD_MODEL\}_\$\{HMBIRD_OS\}\.patch\"; then\s*$\n(?P<body>.*?)(?=^          fi\s*$)",
+    apply_other_body,
+)
+if not fengchi_failure:
+    raise SystemExit("Apply Other Patches must retain the failed Fengchi patch branch")
+fengchi_failure_body = fengchi_failure.group("body")
+for required, message in [
+    ("grep -qF 'sched_ext_free(tsk);' kernel/fork.c.rej", "HMBIRD Fengchi recovery must confirm the rejected old fork hook"),
+    ("grep -qF 'hmbird_free(tsk);' kernel/fork.c.rej", "HMBIRD Fengchi recovery must confirm the rejected new fork hook"),
+    ("sed -i 's/sched_ext_free(tsk);/hmbird_free(tsk);/' kernel/fork.c", "HMBIRD Fengchi recovery must replace only the fork hook call"),
+    ("! grep -qF 'sched_ext_free(tsk);' kernel/fork.c", "HMBIRD Fengchi recovery must verify the old fork hook is gone"),
+    ("rm -f kernel/fork.c.rej", "HMBIRD Fengchi recovery must remove only the handled fork.c reject"),
+]:
+    if required not in fengchi_failure_body:
+        raise SystemExit(message)
+if 'find . -name "*.rej" -delete' in fengchi_failure_body:
+    raise SystemExit("HMBIRD Fengchi recovery must not delete all reject files generically")
+handled_reject_idx = fengchi_failure_body.find("rm -f kernel/fork.c.rej")
+remaining_reject_region = fengchi_failure_body[handled_reject_idx:]
+if 'find . -name "*.rej"' not in remaining_reject_region or "exit 1" not in remaining_reject_region:
+    raise SystemExit("HMBIRD Fengchi recovery must fail if any unhandled reject files remain")
 
 module_overlay_step = re.search(
     r"(?ms)^    - name:\s*Apply Module Overlay\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
