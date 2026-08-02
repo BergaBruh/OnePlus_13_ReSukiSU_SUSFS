@@ -188,27 +188,29 @@ compat_call_delete = "sed -i '/^[[:space:]]*__fold_filemap_fixup_entry(&((struct
 susfs_revert_marker = "# Revert Fake kernel patch"
 susfs_patch_idx = susfs_body.find(susfs_patch)
 compat_decl_idx = susfs_body.find(compat_decl_check)
-compat_delete_idx = susfs_body.find(compat_call_delete)
+compat_delete_match = re.search(
+    re.escape(compat_call_delete) + r"\s+(?:\./)?fs/proc/task_mmu\.c(?:\s|$)",
+    susfs_body,
+)
+compat_delete_idx = compat_delete_match.start() if compat_delete_match else -1
 susfs_revert_idx = susfs_body.find(susfs_revert_marker)
 if min(susfs_patch_idx, compat_decl_idx, compat_delete_idx, susfs_revert_idx) == -1:
-    raise SystemExit("SUSFS android15-6.6 compatibility recovery must check page_size_compat.h and delete the stale task_mmu.c fixup call")
+    raise SystemExit("SUSFS android15-6.6 compatibility recovery must check page_size_compat.h and delete the stale task_mmu.c fixup call from fs/proc/task_mmu.c")
 if not susfs_patch_idx < compat_decl_idx < compat_delete_idx < susfs_revert_idx:
     raise SystemExit("SUSFS compatibility recovery must run after the SUSFS patch attempt and before fake-patch rollback")
 susfs_compat_region = susfs_body[compat_delete_idx:susfs_revert_idx]
-for required, message in [
-    (
-        "__fold_filemap_fixup_entry(&((struct proc_maps_private *)m->private)->iter, &end);",
-        "SUSFS compatibility postcondition must check for the exact stale task_mmu.c fixup call",
-    ),
-    (
-        "! grep -qF '__fold_filemap_fixup_entry' \"$COMMON_KERNEL_FOLDER/include/linux/page_size_compat.h\"",
-        "SUSFS compatibility postcondition must verify the declaration is absent before failing",
-    ),
-    ("::error::", "SUSFS compatibility postcondition must emit an actionable error"),
-    ("exit 1", "SUSFS compatibility postcondition must fail the build when the stale call remains undeclared"),
-]:
-    if required not in susfs_compat_region:
-        raise SystemExit(message)
+stale_fixup_call = "__fold_filemap_fixup_entry(&((struct proc_maps_private *)m->private)->iter, &end);"
+postcondition = re.search(
+    r"(?ms)if\s+grep -qF "
+    + re.escape("'" + stale_fixup_call + "'")
+    + r"\s+(?:\./)?fs/proc/task_mmu\.c\s+&&\s+!\s+grep -qF '__fold_filemap_fixup_entry' \"\$COMMON_KERNEL_FOLDER/include/linux/page_size_compat\.h\";\s*then\s*$"
+    + r"(?P<body>.*?)(?=^\s*fi\s*$)",
+    susfs_compat_region,
+)
+if not postcondition:
+    raise SystemExit("SUSFS compatibility postcondition must fail only when the exact task_mmu.c call remains and the page_size_compat.h declaration is absent")
+if "::error::" not in postcondition.group("body") or "exit 1" not in postcondition.group("body"):
+    raise SystemExit("SUSFS compatibility postcondition must emit ::error:: and exit 1")
 
 ccache_step = re.search(
     r"(?ms)^    - name:\s*Check and Prepare Caches\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
@@ -242,21 +244,46 @@ fengchi_failure = re.search(
 if not fengchi_failure:
     raise SystemExit("Apply Other Patches must retain the failed Fengchi patch branch")
 fengchi_failure_body = fengchi_failure.group("body")
-for required, message in [
-    ("grep -qF 'sched_ext_free(tsk);' kernel/fork.c.rej", "HMBIRD Fengchi recovery must confirm the rejected old fork hook"),
-    ("grep -qF 'hmbird_free(tsk);' kernel/fork.c.rej", "HMBIRD Fengchi recovery must confirm the rejected new fork hook"),
-    ("sed -i 's/sched_ext_free(tsk);/hmbird_free(tsk);/' kernel/fork.c", "HMBIRD Fengchi recovery must replace only the fork hook call"),
-    ("! grep -qF 'sched_ext_free(tsk);' kernel/fork.c", "HMBIRD Fengchi recovery must verify the old fork hook is gone"),
-    ("rm -f kernel/fork.c.rej", "HMBIRD Fengchi recovery must remove only the handled fork.c reject"),
-]:
-    if required not in fengchi_failure_body:
-        raise SystemExit(message)
+old_reject_idx = fengchi_failure_body.find("grep -qF 'sched_ext_free(tsk);' kernel/fork.c.rej")
+new_reject_idx = fengchi_failure_body.find("grep -qF 'hmbird_free(tsk);' kernel/fork.c.rej")
+replace_idx = fengchi_failure_body.find("sed -i 's/sched_ext_free(tsk);/hmbird_free(tsk);/' kernel/fork.c")
+new_hook_match = re.search(
+    re.escape("grep -qF 'hmbird_free(tsk);' kernel/fork.c") + r"(?:\s|$)",
+    fengchi_failure_body,
+)
+old_hook_match = re.search(
+    re.escape("! grep -qF 'sched_ext_free(tsk);' kernel/fork.c") + r"(?:\s|$)",
+    fengchi_failure_body,
+)
+new_hook_idx = new_hook_match.start() if new_hook_match else -1
+old_hook_idx = old_hook_match.start() if old_hook_match else -1
+handled_reject_idx = fengchi_failure_body.find("rm -f kernel/fork.c.rej")
+remaining_reject_match = re.search(
+    r"(?ms)if\s+\[\s+-n\s+\"\$\(find \. -name '\*\.rej' -print -quit\)\"\s+\];\s*then\s*$"
+    r"(?P<body>.*?)(?=^\s*fi\s*$)",
+    fengchi_failure_body,
+)
+remaining_reject_idx = remaining_reject_match.start() if remaining_reject_match else -1
+ordered_hmbird_indexes = [
+    old_reject_idx,
+    new_reject_idx,
+    replace_idx,
+    new_hook_idx,
+    old_hook_idx,
+    handled_reject_idx,
+    remaining_reject_idx,
+]
+if min(ordered_hmbird_indexes) == -1:
+    raise SystemExit("HMBIRD Fengchi recovery must prove reject evidence, replace the fork hook, verify new/old hook state, remove only kernel/fork.c.rej, and check remaining rejects")
+if ordered_hmbird_indexes != sorted(ordered_hmbird_indexes) or len(set(ordered_hmbird_indexes)) != len(ordered_hmbird_indexes):
+    raise SystemExit("HMBIRD Fengchi recovery checks must run in strict evidence, replace, verify, handled-reject, remaining-reject order")
 if 'find . -name "*.rej" -delete' in fengchi_failure_body:
     raise SystemExit("HMBIRD Fengchi recovery must not delete all reject files generically")
-handled_reject_idx = fengchi_failure_body.find("rm -f kernel/fork.c.rej")
 remaining_reject_region = fengchi_failure_body[handled_reject_idx:]
-if 'find . -name "*.rej"' not in remaining_reject_region or "exit 1" not in remaining_reject_region:
-    raise SystemExit("HMBIRD Fengchi recovery must fail if any unhandled reject files remain")
+if "|| true" in remaining_reject_region or re.search(r"find \. -name ['\"]\*\.rej['\"] -delete", remaining_reject_region):
+    raise SystemExit("HMBIRD Fengchi recovery remaining-reject region must not mask failures or delete rejects generically")
+if not remaining_reject_match or "exit 1" not in remaining_reject_match.group("body"):
+    raise SystemExit("HMBIRD Fengchi recovery must use find . -name '*.rej' -print -quit and fail if any unhandled reject files remain")
 
 module_overlay_step = re.search(
     r"(?ms)^    - name:\s*Apply Module Overlay\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
