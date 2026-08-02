@@ -15,6 +15,7 @@
   "disk_cleanup": false,
   "hmbird": true,
   "susfs": true,
+  "module_overlay": false,
   "opt": true,
   "ds": true,
   "bbg": true,

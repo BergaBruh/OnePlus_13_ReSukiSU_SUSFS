@@ -16,6 +16,7 @@
   "hmbird": false,
   "susfs": true,
   "custom_patches": false,
+  "module_overlay": false,
   "opt": true,
   "ds": false,
   "bbg": false,

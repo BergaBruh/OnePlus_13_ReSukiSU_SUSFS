@@ -54,6 +54,11 @@ for config_path in sys.argv[2:]:
         raise SystemExit(f"missing approved config: {config_path}")
     with path.open(encoding="utf-8") as fh:
         config = json.load(fh)
+    raw = path.read_text(encoding="utf-8")
+    if '"module_overlay": false' not in raw:
+        raise SystemExit(f'{config_path}: must set exact "module_overlay": false')
+    if config.get("module_overlay") is not False:
+        raise SystemExit(f"{config_path}: module_overlay must be boolean false")
     manifest = config.get("manifest")
     if not isinstance(manifest, str) or not manifest:
         raise SystemExit(f"{config_path}: missing manifest reference")
@@ -108,6 +113,78 @@ if not re.search(r"(?m)^    required:\s*false\s*$", slug_input.group("body")):
     raise SystemExit("artifact_slug must remain optional for existing action callers")
 if not re.search(r"(?m)^    default:\s*''\s*$", slug_input.group("body")):
     raise SystemExit("artifact_slug must default to the empty legacy-name behavior")
+
+if re.search(r"(?ms)^  module_overlay:\s*$", action_text):
+    raise SystemExit("module_overlay must come only from op_config_json, not a composite action input")
+
+parse_step = re.search(
+    r"(?ms)^    - name:\s*Parse op_config_json\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not parse_step:
+    raise SystemExit("build action must retain the Parse op_config_json step")
+parse_body = parse_step.group("body")
+for required, message in [
+    ('has("module_overlay")', "missing module_overlay must be detected explicitly"),
+    ('echo "OP_MODULE_OVERLAY=false" >> "$GITHUB_ENV"', "missing module_overlay must export OP_MODULE_OVERLAY=false"),
+]:
+    if required not in parse_body:
+        raise SystemExit(message)
+
+validate_step = re.search(
+    r"(?ms)^    - name:\s*Validate Inputs\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not validate_step:
+    raise SystemExit("build action must retain the Validate Inputs step")
+validate_body = validate_step.group("body")
+for required, message in [
+    ('module_overlay="${OP_MODULE_OVERLAY:-false}"', "module_overlay must default independently to false during validation"),
+    ("Input 'module_overlay' must be 'true' or 'false'. Got: '$module_overlay'", "module_overlay must have boolean-only validation"),
+]:
+    if required not in validate_body:
+        raise SystemExit(message)
+module_overlay_assignment = validate_body.find('module_overlay="${OP_MODULE_OVERLAY:-false}"')
+optimize_validation = validate_body.find('case "$optimize"')
+if module_overlay_assignment == -1 or optimize_validation == -1:
+    raise SystemExit("module_overlay validation must be in the existing input-validation block")
+if "OP_CUSTOM_PATCHES" in validate_body[module_overlay_assignment:optimize_validation]:
+    raise SystemExit("module_overlay validation must not inherit from custom_patches")
+
+apply_other_step = re.search(
+    r"(?ms)^    - name:\s*Apply Other Patches\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not apply_other_step:
+    raise SystemExit("build action must retain the Apply Other Patches step")
+apply_other_body = apply_other_step.group("body")
+for forbidden, message in [
+    ("oneplus/module_overlay", "Apply Other Patches must not patch module_overlay"),
+    ("convert_overlay.sh", "Apply Other Patches must not run module_overlay conversion setup"),
+    ("module_overlay/modules", "Apply Other Patches must not copy module_overlay modules"),
+    ("extra_files_to_hash", "Apply Other Patches must not own module_overlay ccache hashing"),
+]:
+    if forbidden in apply_other_body:
+        raise SystemExit(message)
+
+module_overlay_step = re.search(
+    r"(?ms)^    - name:\s*Apply Module Overlay\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not module_overlay_step:
+    raise SystemExit("build action must have a standalone Apply Module Overlay step")
+module_overlay_body = module_overlay_step.group("body")
+for required, message in [
+    ("if: ${{ env.OP_MODULE_OVERLAY == 'true' }}", "module overlay step must be gated only by OP_MODULE_OVERLAY"),
+    ('MIN_VERSION="5.16"', "module overlay step must preserve the existing kernel-version eligibility check"),
+    ('overlay_patch="$KERNEL_PATCHES_FOLDER/oneplus/module_overlay/0001-module-Add-module-intercept-and-overlay-mechanism.patch"', "module overlay step must name the exact overlay patch payload"),
+    ('overlay_modules_dir="$KERNEL_PATCHES_FOLDER/oneplus/module_overlay/modules"', "module overlay step must name the exact overlay modules payload"),
+    ('::error::Missing module overlay patch: $overlay_patch', "module overlay step must fail with the missing patch path"),
+    ('::error::Missing module overlay modules directory: $overlay_modules_dir', "module overlay step must fail with the missing modules path"),
+    ('ccache --set-config=extra_files_to_hash="$copied_modules"', "module overlay step must preserve ccache hashing for copied overlay modules"),
+]:
+    if required not in module_overlay_body:
+        raise SystemExit(message)
 
 path_step = re.search(
     r"(?ms)^    - name:\s*Set Dir Paths\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
