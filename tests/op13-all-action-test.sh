@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 workflow="$repo_root/.github/workflows/build-op13-all.yml"
+build_action="$repo_root/.github/actions/build-kernel/action.yml"
 
 expected_manifests=(
   "manifests/oos15/oneplus_13_6.6.30_v.xml"
@@ -62,6 +63,46 @@ for config_path in sys.argv[2:]:
 PY
 
 [[ -f "$workflow" ]] || fail "missing all-variant OP13 workflow"
+[[ -f "$build_action" ]] || fail "missing build-kernel composite action"
+
+python3 - "$build_action" "$workflow" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+action_text = Path(sys.argv[1]).read_text(encoding="utf-8")
+workflow_text = Path(sys.argv[2]).read_text(encoding="utf-8")
+
+input_match = re.search(
+    r"(?ms)^  upload_final_zip:\s*$\n(?P<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_]*:\s*$|^outputs:\s*$)",
+    action_text,
+)
+if not input_match:
+    raise SystemExit("build action must declare upload_final_zip input")
+if not re.search(r"(?m)^    default:\s*'true'\s*$", input_match.group("body")):
+    raise SystemExit("upload_final_zip must default to 'true' for backward compatibility")
+
+upload_step = re.search(
+    r"(?ms)^    - name:\s*Upload Artifacts\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not upload_step:
+    raise SystemExit("build action must retain the Upload Artifacts step")
+if not re.search(
+    r"(?m)^      if:\s*.*inputs\.upload_final_zip\s*==\s*'true'.*$",
+    upload_step.group("body"),
+):
+    raise SystemExit("Upload Artifacts condition must require inputs.upload_final_zip == 'true'")
+
+build_step = re.search(
+    r"(?ms)^        uses:\s*\./\.github/actions/build-kernel\s*$\n(?P<body>.*?)(?=^      - name:|\Z)",
+    workflow_text,
+)
+if not build_step or not re.search(
+    r"(?m)^          upload_final_zip:\s*false\s*$", build_step.group("body")
+):
+    raise SystemExit("OP13 all-variant workflow must pass upload_final_zip: false to the composite build step")
+PY
 
 python3 - "$workflow" <<'PY'
 import re
