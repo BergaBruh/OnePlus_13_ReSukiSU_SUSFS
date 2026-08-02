@@ -125,6 +125,13 @@ runs:
       run: |
         set -euo pipefail
         echo '${{ inputs.op_config_json }}' > /tmp/config.json
+        if jq -e 'has("module_overlay")' /tmp/config.json >/dev/null; then
+          if ! jq -e '(.module_overlay | type) == "boolean"' /tmp/config.json >/dev/null; then
+            module_overlay_type="$(jq -r '.module_overlay | type' /tmp/config.json)"
+            echo "::error::op_config_json field 'module_overlay' must be a JSON boolean true or false. Got JSON type: $module_overlay_type"
+            exit 1
+          fi
+        fi
         jq -r 'to_entries[] | "OP_\(.key | ascii_upcase)=\(.value)"' /tmp/config.json >> "$GITHUB_ENV"
         if ! jq -e 'has("custom_patches")' /tmp/config.json >/dev/null; then
           echo "OP_CUSTOM_PATCHES=true" >> "$GITHUB_ENV"
@@ -736,6 +743,9 @@ runs:
         
         echo "/usr/lib/ccache" >> $GITHUB_PATH
         
+        echo "Resetting ccache extra files hash inputs"
+        ccache --set-config=extra_files_to_hash=""
+
         echo "Current ccache configuration:"
         ccache -p
         

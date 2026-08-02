@@ -76,6 +76,7 @@ mapfile -t tracked_workflows < <(
 
 python3 - "$build_action" "$workflow" "$repo_root" "${tracked_workflows[@]}" <<'PY'
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -126,10 +127,28 @@ if not parse_step:
 parse_body = parse_step.group("body")
 for required, message in [
     ('has("module_overlay")', "missing module_overlay must be detected explicitly"),
+    ('(.module_overlay | type) == "boolean"', "module_overlay must be validated as a JSON boolean before export"),
+    ('::error::op_config_json field \'module_overlay\' must be a JSON boolean true or false.', "invalid module_overlay JSON type must emit an actionable error"),
     ('echo "OP_MODULE_OVERLAY=false" >> "$GITHUB_ENV"', "missing module_overlay must export OP_MODULE_OVERLAY=false"),
 ]:
     if required not in parse_body:
         raise SystemExit(message)
+type_check = parse_body.find('(.module_overlay | type) == "boolean"')
+env_export = parse_body.find("jq -r 'to_entries[]")
+if type_check == -1 or env_export == -1 or not type_check < env_export:
+    raise SystemExit("module_overlay JSON type must be checked before exporting config entries to GITHUB_ENV")
+
+for value in ('"true"', '"false"'):
+    rejected = subprocess.run(
+        ["jq", "-e", '(.module_overlay | type) == "boolean"'],
+        input=f'{{"module_overlay": {value}}}',
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if rejected.returncode == 0:
+        raise SystemExit(f"module_overlay string {value} must not satisfy the JSON boolean predicate")
 
 validate_step = re.search(
     r"(?ms)^    - name:\s*Validate Inputs\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
@@ -150,6 +169,16 @@ if module_overlay_assignment == -1 or optimize_validation == -1:
     raise SystemExit("module_overlay validation must be in the existing input-validation block")
 if "OP_CUSTOM_PATCHES" in validate_body[module_overlay_assignment:optimize_validation]:
     raise SystemExit("module_overlay validation must not inherit from custom_patches")
+
+ccache_step = re.search(
+    r"(?ms)^    - name:\s*Check and Prepare Caches\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not ccache_step:
+    raise SystemExit("build action must retain the Check and Prepare Caches step")
+ccache_body = ccache_step.group("body")
+if 'ccache --set-config=extra_files_to_hash=""' not in ccache_body:
+    raise SystemExit("ccache setup must reset extra_files_to_hash for every run before overlay can override it")
 
 apply_other_step = re.search(
     r"(?ms)^    - name:\s*Apply Other Patches\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
@@ -185,6 +214,23 @@ for required, message in [
 ]:
     if required not in module_overlay_body:
         raise SystemExit(message)
+for guard, message in [
+    ('[ ! -f "$overlay_patch" ]', "module overlay patch file guard must exist"),
+    ('[ ! -d "$overlay_modules_dir" ]', "module overlay modules directory guard must exist"),
+]:
+    if guard not in module_overlay_body:
+        raise SystemExit(message)
+first_overlay_patch = module_overlay_body.find('patch -p1 -F 3 < "$overlay_patch"')
+patch_guard = module_overlay_body.find('[ ! -f "$overlay_patch" ]')
+modules_guard = module_overlay_body.find('[ ! -d "$overlay_modules_dir" ]')
+if min(first_overlay_patch, patch_guard, modules_guard) == -1:
+    raise SystemExit("module overlay guard ordering check could not locate required commands")
+if not (patch_guard < first_overlay_patch and modules_guard < first_overlay_patch):
+    raise SystemExit("module overlay payload guards must run before the first patch command mutates the kernel tree")
+if action_text.count('ccache --set-config=extra_files_to_hash=') != 2:
+    raise SystemExit("ccache extra_files_to_hash must be reset once in setup and overridden only by module overlay")
+if not (ccache_step.start() < module_overlay_step.start()):
+    raise SystemExit("ccache extra_files_to_hash reset must occur before the module overlay step")
 
 path_step = re.search(
     r"(?ms)^    - name:\s*Set Dir Paths\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
