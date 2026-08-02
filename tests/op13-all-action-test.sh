@@ -112,6 +112,8 @@ row_blocks = re.findall(r"(?ms)^ {10}- slug:\s*[^\n]+.*?(?=^ {10}- slug:|\Z)", i
 rows = []
 for block in row_blocks:
     fields = dict(re.findall(r"(?m)^ {12}([A-Za-z_]+):\s*([^\n]+)$", block))
+    slug = re.match(r"^ {10}- slug:\s*([^\n]+)", block)
+    fields["slug"] = slug.group(1) if slug else ""
     rows.append(tuple(fields.get(key, "") for key in ("slug", "config", "manifest", "compatibility")))
 if rows != expected_rows:
     raise SystemExit(f"matrix include must equal the six approved rows; got {rows!r}")
