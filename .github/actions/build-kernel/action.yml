@@ -1346,6 +1346,12 @@ runs:
               find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
               exit 1
             fi
+            reject_hunk_count=$(awk '/^@@ / { count++ } END { print count + 0 }' kernel/fork.c.rej)
+            if [ "$reject_hunk_count" -ne 1 ]; then
+              echo "::error::hmbird fengchi reject recovery expected exactly one failed hunk in kernel/fork.c.rej, found $reject_hunk_count. Dumping all .rej files:"
+              find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
+              exit 1
+            fi
             if ! grep -qF 'sched_ext_free(tsk);' kernel/fork.c.rej; then
               echo "::error::hmbird fengchi reject does not contain the expected sched_ext_free removal evidence. Dumping all .rej files:"
               find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;

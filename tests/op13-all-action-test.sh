@@ -244,6 +244,16 @@ fengchi_failure = re.search(
 if not fengchi_failure:
     raise SystemExit("Apply Other Patches must retain the failed Fengchi patch branch")
 fengchi_failure_body = fengchi_failure.group("body")
+reject_exists_idx = fengchi_failure_body.find("if [ ! -f kernel/fork.c.rej ]; then")
+reject_hunk_count_idx = fengchi_failure_body.find(
+    "reject_hunk_count=$(awk '/^@@ / { count++ } END { print count + 0 }' kernel/fork.c.rej)"
+)
+reject_hunk_count_failure = re.search(
+    r"(?ms)if\s+\[\s+\"\$reject_hunk_count\"\s+-ne\s+1\s+\];\s*then\s*$"
+    r"(?P<body>.*?)(?=^\s*fi\s*$)",
+    fengchi_failure_body,
+)
+reject_hunk_count_failure_idx = reject_hunk_count_failure.start() if reject_hunk_count_failure else -1
 old_reject_idx = fengchi_failure_body.find("grep -qF 'sched_ext_free(tsk);' kernel/fork.c.rej")
 new_reject_idx = fengchi_failure_body.find("grep -qF 'hmbird_free(tsk);' kernel/fork.c.rej")
 old_hook_count_idx = fengchi_failure_body.find(
@@ -271,6 +281,9 @@ remaining_reject_match = re.search(
 )
 remaining_reject_idx = remaining_reject_match.start() if remaining_reject_match else -1
 ordered_hmbird_indexes = [
+    reject_exists_idx,
+    reject_hunk_count_idx,
+    reject_hunk_count_failure_idx,
     old_reject_idx,
     new_reject_idx,
     old_hook_count_idx,
@@ -282,9 +295,19 @@ ordered_hmbird_indexes = [
     remaining_reject_idx,
 ]
 if min(ordered_hmbird_indexes) == -1:
-    raise SystemExit("HMBIRD Fengchi recovery must prove reject evidence, require exactly one old fork hook, directly transform it to the exact guarded block, verify new/old hook state, remove only kernel/fork.c.rej, and check remaining rejects")
+    raise SystemExit("HMBIRD Fengchi recovery must prove one known reject hunk, reject evidence, exactly one old fork hook, direct guarded replacement, handled reject cleanup, and remaining-reject failure")
 if ordered_hmbird_indexes != sorted(ordered_hmbird_indexes) or len(set(ordered_hmbird_indexes)) != len(ordered_hmbird_indexes):
-    raise SystemExit("HMBIRD Fengchi recovery checks must run in strict evidence, replace, verify, handled-reject, remaining-reject order")
+    raise SystemExit("HMBIRD Fengchi recovery checks must run in strict reject-target, hunk-count, evidence, replace, verify, handled-reject, remaining-reject order")
+if not reject_hunk_count_failure:
+    raise SystemExit("HMBIRD Fengchi recovery must fail closed unless kernel/fork.c.rej has exactly one unified hunk")
+reject_hunk_count_failure_body = reject_hunk_count_failure.group("body")
+for required, message in [
+    ("::error::", "unexpected HMBIRD reject hunk count must emit ::error::"),
+    ("find . -name", "unexpected HMBIRD reject hunk count must dump reject diagnostics"),
+    ("exit 1", "unexpected HMBIRD reject hunk count must exit non-zero"),
+]:
+    if required not in reject_hunk_count_failure_body:
+        raise SystemExit(message)
 if "sed -i 's/sched_ext_free(tsk);/hmbird_free(tsk);/' kernel/fork.c" in fengchi_failure_body:
     raise SystemExit("HMBIRD Fengchi recovery must not use an unanchored sed replacement for the fork hook")
 if "s/^[[:blank:]]*hmbird_free\\(tsk\\);" in fengchi_failure_body:
