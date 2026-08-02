@@ -277,10 +277,16 @@ if min(ordered_hmbird_indexes) == -1:
     raise SystemExit("HMBIRD Fengchi recovery must prove reject evidence, replace the fork hook, verify new/old hook state, remove only kernel/fork.c.rej, and check remaining rejects")
 if ordered_hmbird_indexes != sorted(ordered_hmbird_indexes) or len(set(ordered_hmbird_indexes)) != len(ordered_hmbird_indexes):
     raise SystemExit("HMBIRD Fengchi recovery checks must run in strict evidence, replace, verify, handled-reject, remaining-reject order")
-if 'find . -name "*.rej" -delete' in fengchi_failure_body:
+if re.search(r"find \. -name ['\"]\*\.rej['\"] -delete", fengchi_failure_body):
     raise SystemExit("HMBIRD Fengchi recovery must not delete all reject files generically")
+masked_reject_cleanup = re.search(
+    r"(?m)^\s*(?:find \. -name ['\"]\*\.rej['\"].*|rm\s+(?:-[A-Za-z]+\s+)*[^;\n]*\.rej\b.*)\|\|\s*true\b",
+    fengchi_failure_body,
+)
+if masked_reject_cleanup:
+    raise SystemExit("HMBIRD Fengchi recovery must not mask reject/file cleanup with || true")
 remaining_reject_region = fengchi_failure_body[handled_reject_idx:]
-if "|| true" in remaining_reject_region or re.search(r"find \. -name ['\"]\*\.rej['\"] -delete", remaining_reject_region):
+if re.search(r"find \. -name ['\"]\*\.rej['\"] -delete", remaining_reject_region):
     raise SystemExit("HMBIRD Fengchi recovery remaining-reject region must not mask failures or delete rejects generically")
 if not remaining_reject_match or "exit 1" not in remaining_reject_match.group("body"):
     raise SystemExit("HMBIRD Fengchi recovery must use find . -name '*.rej' -print -quit and fail if any unhandled reject files remain")
