@@ -1,0 +1,496 @@
+name: Build all supported OP13 variants (ReSukiSU + SUSFS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      optimize_level:
+        description: Compiler optimization level
+        required: true
+        type: choice
+        options: [O2, O3]
+        default: O2
+      clean_build:
+        description: Clean build without restored ccache
+        required: true
+        type: boolean
+        default: false
+      debug:
+        description: Upload diagnostic artifacts
+        required: true
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - .github/update-state/op13-upstreams.json
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.slug }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: oos15-op13-6-6-30
+            config: configs/oos15/OP13-6.6.30.json
+            manifest: manifests/oos15/oneplus_13_6.6.30_v.xml
+            compatibility: manifest-specific; no region inferred
+            oos: OOS15
+          - slug: oos15-op13-cph-6-6-56
+            config: configs/oos15/OP13-CPH-6.6.56.json
+            manifest: manifests/oos15/oneplus_13_global_6.6.56_v.xml
+            compatibility: CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US
+            oos: OOS15
+          - slug: oos15-op13-cph
+            config: configs/oos15/OP13-CPH.json
+            manifest: manifests/oos15/oneplus_13_global_v.xml
+            compatibility: CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US
+            oos: OOS15
+          - slug: oos15-op13-pjz
+            config: configs/oos15/OP13-PJZ.json
+            manifest: manifests/oos15/oneplus_13_v.xml
+            compatibility: PJZ110 CN
+            oos: OOS15
+          - slug: oos16-op13-global-6-6-118
+            config: configs/oos16/OP13-GLOBAL-6.6.118.json
+            manifest: manifests/oos16/oneplus_13_global_6.6.118_w.xml
+            compatibility: CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US
+            oos: OOS16
+          - slug: oos16-op13
+            config: configs/oos16/OP13.json
+            manifest: manifests/oos16/oneplus_13_w.xml
+            compatibility: manifest-specific; no region inferred
+            oos: OOS16
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_LOGFILE: ${{ github.workspace }}/ccache.log
+      CCACHE_MAXSIZE: 12G
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_COMPRESSION: "true"
+      CCACHE_COMPRESSION_LEVEL: "3"
+      CCACHE_DIRECT: "true"
+      CCACHE_FILE_CLONE: "true"
+      CCACHE_INODE_CACHE: "true"
+      CCACHE_IS_KERNEL_COMPILING: "true"
+      CCACHE_UMASK: "002"
+      CCACHE_SLOPPINESS: file_macro,time_macros,include_file_mtime,include_file_ctime,pch_defines,system_headers,locale
+      LDCACHE_DIR: ${{ github.workspace }}/.ldcache
+    steps:
+      - name: Checkout build definitions
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git curl ca-certificates build-essential clang lld flex bison \
+            libelf-dev libssl-dev libncurses-dev zlib1g-dev liblz4-tool \
+            libxml2-utils rsync unzip dwarves file python3 ccache jq bc dos2unix \
+            kmod libdw-dev elfutils pigz
+          sudo apt-get clean
+          mkdir -p "$CCACHE_DIR" "$LDCACHE_DIR"
+
+      - name: Validate and read matrix configuration
+        id: config
+        shell: bash
+        env:
+          MATRIX_CONFIG: ${{ matrix.config }}
+          MATRIX_MANIFEST: ${{ matrix.manifest }}
+          MATRIX_OOS: ${{ matrix.oos }}
+        run: |
+          set -euo pipefail
+
+          state=.github/update-state/op13-upstreams.json
+          [[ "$MATRIX_CONFIG" =~ ^configs/oos(15|16)/[A-Za-z0-9._-]+\.json$ ]] || {
+            echo "::error::Unexpected matrix config path: $MATRIX_CONFIG"
+            exit 1
+          }
+          [[ "$MATRIX_MANIFEST" =~ ^manifests/oos(15|16)/[A-Za-z0-9._-]+\.xml$ ]] || {
+            echo "::error::Unexpected matrix manifest path: $MATRIX_MANIFEST"
+            exit 1
+          }
+          [[ -f "$MATRIX_CONFIG" ]] || {
+            echo "::error::Missing matrix config: $MATRIX_CONFIG"
+            exit 1
+          }
+          jq -e . "$MATRIX_CONFIG" >/dev/null || {
+            echo "::error::Invalid matrix config JSON: $MATRIX_CONFIG"
+            exit 1
+          }
+          [[ -f "$MATRIX_MANIFEST" ]] || {
+            echo "::error::Missing matrix manifest: $MATRIX_MANIFEST"
+            exit 1
+          }
+
+          config_manifest="$(jq -er '.manifest | select(type == "string" and length > 0)' "$MATRIX_CONFIG")"
+          [[ "$config_manifest" =~ ^[A-Za-z0-9._-]+\.xml$ ]] || {
+            echo "::error::Unexpected manifest reference in $MATRIX_CONFIG: $config_manifest"
+            exit 1
+          }
+          mapfile -t manifest_matches < <(find manifests -type f -name "$config_manifest" -print)
+          if [[ "${#manifest_matches[@]}" -ne 1 || "${manifest_matches[0]}" != "$MATRIX_MANIFEST" ]]; then
+            echo "::error::$MATRIX_CONFIG must resolve exactly to $MATRIX_MANIFEST"
+            printf 'Resolved manifest: %s\n' "${manifest_matches[@]:-none}"
+            exit 1
+          fi
+
+          config_oos="$(jq -er '.os_version | select(type == "string" and length > 0)' "$MATRIX_CONFIG")"
+          [[ "$config_oos" == "$MATRIX_OOS" ]] || {
+            echo "::error::$MATRIX_CONFIG declares $config_oos, expected $MATRIX_OOS"
+            exit 1
+          }
+          model="$(jq -er '.model | select(type == "string" and length > 0)' "$MATRIX_CONFIG")"
+          [[ "$model" =~ ^[A-Za-z0-9._-]+$ ]] || {
+            echo "::error::Unexpected model in $MATRIX_CONFIG: $model"
+            exit 1
+          }
+
+          resukisu_sha="$(jq -er '.sources.resukisu.sha' "$state")"
+          susfs_sha="$(jq -er '.sources.susfs.sha' "$state")"
+          [[ "$resukisu_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Invalid ReSukiSU state pin"
+            exit 1
+          }
+          [[ "$susfs_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Invalid SUSFS state pin"
+            exit 1
+          }
+
+          echo "json=$(jq -c . "$MATRIX_CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "model=$model" >> "$GITHUB_OUTPUT"
+          echo "resukisu_sha=$resukisu_sha" >> "$GITHUB_OUTPUT"
+          echo "susfs_sha=$susfs_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Build OP13 kernel
+        id: build
+        uses: ./.github/actions/build-kernel
+        with:
+          op_config_json: ${{ steps.config.outputs.json }}
+          ksu_type: ReSukiSU
+          ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_sha }}
+          susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_sha }}
+          optimize_level: ${{ inputs.optimize_level || 'O2' }}
+          clean: ${{ inputs.clean_build || false }}
+          debug: ${{ inputs.debug || false }}
+          archive_final_zip: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prefix and describe release ZIP
+        shell: bash
+        env:
+          BUILD_SHA256: ${{ steps.build.outputs.zip_sha256 }}
+          COMPATIBILITY: ${{ matrix.compatibility }}
+          CONFIG_PATH: ${{ matrix.config }}
+          KERNEL_VERSION: ${{ steps.build.outputs.kernel_version }}
+          MANIFEST_PATH: ${{ matrix.manifest }}
+          MODEL: ${{ steps.config.outputs.model }}
+          OOS: ${{ matrix.oos }}
+          ORIGINAL_ZIP: ${{ steps.build.outputs.zip_name }}
+          RESUKISU_SHA: ${{ steps.config.outputs.resukisu_sha }}
+          RESUKISU_VERSION: ${{ steps.build.outputs.ksu_version }}
+          SLUG: ${{ matrix.slug }}
+          SUSFS_SHA: ${{ steps.config.outputs.susfs_sha }}
+          SUSFS_VERSION: ${{ steps.build.outputs.susfs_version }}
+        run: |
+          set -euo pipefail
+
+          [[ "$SLUG" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || {
+            echo "::error::Unexpected release slug: $SLUG"
+            exit 1
+          }
+          [[ "$ORIGINAL_ZIP" != */* && "$ORIGINAL_ZIP" == *.zip && "$ORIGINAL_ZIP" != *[!A-Za-z0-9._-]* ]] || {
+            echo "::error::Unexpected ZIP basename: $ORIGINAL_ZIP"
+            exit 1
+          }
+          [[ "$BUILD_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "::error::Unexpected ZIP SHA-256: $BUILD_SHA256"
+            exit 1
+          }
+
+          for value in "$KERNEL_VERSION" "$RESUKISU_VERSION" "$SUSFS_VERSION"; do
+            [[ -n "$value" && "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != *'|'* ]] || {
+              echo "::error::Unsafe or empty build metadata value"
+              exit 1
+            }
+          done
+
+          source_zip="$GITHUB_WORKSPACE/$MODEL/artifacts/$ORIGINAL_ZIP"
+          [[ -f "$source_zip" ]] || {
+            echo "::error::Built ZIP not found at expected path: $source_zip"
+            exit 1
+          }
+          actual_sha256="$(sha256sum "$source_zip" | awk '{print $1}')"
+          [[ "$actual_sha256" == "$BUILD_SHA256" ]] || {
+            echo "::error::Built ZIP SHA-256 does not match action output"
+            exit 1
+          }
+
+          prefixed_zip="$SLUG-$ORIGINAL_ZIP"
+          release_zip="$GITHUB_WORKSPACE/$prefixed_zip"
+          [[ ! -e "$release_zip" ]] || {
+            echo "::error::Refusing to overwrite existing release ZIP: $release_zip"
+            exit 1
+          }
+          mv -- "$source_zip" "$release_zip"
+          [[ "$(sha256sum "$release_zip" | awk '{print $1}')" == "$BUILD_SHA256" ]] || {
+            echo "::error::ZIP SHA-256 changed while prefixing its basename"
+            exit 1
+          }
+
+          metadata="$GITHUB_WORKSPACE/release-metadata-${{ matrix.slug }}.json"
+          jq -n \
+            --arg slug "$SLUG" \
+            --arg config "$CONFIG_PATH" \
+            --arg manifest "$MANIFEST_PATH" \
+            --arg compatibility "$COMPATIBILITY" \
+            --arg oos "$OOS" \
+            --arg kernel_kmi "$KERNEL_VERSION" \
+            --arg resukisu "$RESUKISU_VERSION @ $RESUKISU_SHA" \
+            --arg susfs "$SUSFS_VERSION @ $SUSFS_SHA" \
+            --arg zip "$prefixed_zip" \
+            --arg sha256 "$BUILD_SHA256" \
+            '{slug: $slug, config: $config, manifest: $manifest, compatibility: $compatibility,
+              oos: $oos, kernel_kmi: $kernel_kmi, resukisu: $resukisu, susfs: $susfs,
+              zip: $zip, sha256: $sha256}' > "$metadata"
+          jq -e . "$metadata" >/dev/null
+
+      - name: Upload verified release inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: op13-release-${{ matrix.slug }}
+          path: |
+            ${{ github.workspace }}/${{ matrix.slug }}-${{ steps.build.outputs.zip_name }}
+            ${{ github.workspace }}/release-metadata-${{ matrix.slug }}.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  publish:
+    name: Publish all supported OP13 variants
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
+      RUN_NUMBER: ${{ github.run_number }}
+    steps:
+      - name: Download oos15-op13-6-6-30
+        uses: actions/download-artifact@v5
+        with:
+          name: op13-release-oos15-op13-6-6-30
+          path: release-dist/oos15-op13-6-6-30
+      - name: Download oos15-op13-cph-6-6-56
+        uses: actions/download-artifact@v5
+        with:
+          name: op13-release-oos15-op13-cph-6-6-56
+          path: release-dist/oos15-op13-cph-6-6-56
+      - name: Download oos15-op13-cph
+        uses: actions/download-artifact@v5
+        with:
+          name: op13-release-oos15-op13-cph
+          path: release-dist/oos15-op13-cph
+      - name: Download oos15-op13-pjz
+        uses: actions/download-artifact@v5
+        with:
+          name: op13-release-oos15-op13-pjz
+          path: release-dist/oos15-op13-pjz
+      - name: Download oos16-op13-global-6-6-118
+        uses: actions/download-artifact@v5
+        with:
+          name: op13-release-oos16-op13-global-6-6-118
+          path: release-dist/oos16-op13-global-6-6-118
+      - name: Download oos16-op13
+        uses: actions/download-artifact@v5
+        with:
+          name: op13-release-oos16-op13
+          path: release-dist/oos16-op13
+
+      - name: Validate and publish aggregate release
+        shell: bash
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          [[ "$RUN_NUMBER" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::Invalid workflow run number"
+            exit 1
+          }
+          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::Invalid workflow run attempt"
+            exit 1
+          }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Invalid workflow commit SHA"
+            exit 1
+          }
+
+          slugs=(
+            oos15-op13-6-6-30
+            oos15-op13-cph-6-6-56
+            oos15-op13-cph
+            oos15-op13-pjz
+            oos16-op13-global-6-6-118
+            oos16-op13
+          )
+          mapfile -t metadata_files < <(find release-dist -type f -name 'release-metadata-*.json' -print | sort)
+          mapfile -t zip_files < <(find release-dist -type f -name '*.zip' -print | sort)
+          [[ "${#metadata_files[@]}" -eq 6 ]] || {
+            echo "::error::Expected exactly six release-metadata-*.json files"
+            exit 1
+          }
+          [[ "${#zip_files[@]}" -eq 6 ]] || {
+            echo "::error::Expected exactly six release ZIPs"
+            exit 1
+          }
+
+          declare -A seen_zip=()
+          zip_paths=()
+          release_notes="$RUNNER_TEMP/op13-all-release.md"
+          {
+            echo "# OnePlus 13 ReSukiSU + SUSFS builds"
+            echo
+            echo "| Slug | Config | Manifest | Compatibility | OOS | Kernel/KMI | ReSukiSU | SUSFS | ZIP | SHA-256 |"
+            echo "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+          } > "$release_notes"
+
+          for slug in "${slugs[@]}"; do
+            artifact_dir="release-dist/$slug"
+            metadata="$artifact_dir/release-metadata-$slug.json"
+            [[ -f "$metadata" ]] || {
+              echo "::error::Missing metadata for $slug"
+              exit 1
+            }
+            mapfile -t artifact_files < <(find "$artifact_dir" -maxdepth 1 -type f -print | sort)
+            [[ "${#artifact_files[@]}" -eq 2 ]] || {
+              echo "::error::Artifact $slug must contain exactly one metadata file and one ZIP"
+              exit 1
+            }
+            jq -e '
+              type == "object" and
+              keys == ["compatibility", "config", "kernel_kmi", "manifest", "oos", "resukisu", "sha256", "slug", "susfs", "zip"] and
+              all(.[]; type == "string" and length > 0)
+            ' "$metadata" >/dev/null || {
+              echo "::error::Invalid metadata schema for $slug"
+              exit 1
+            }
+
+            metadata_slug="$(jq -er '.slug' "$metadata")"
+            config="$(jq -er '.config' "$metadata")"
+            manifest="$(jq -er '.manifest' "$metadata")"
+            compatibility="$(jq -er '.compatibility' "$metadata")"
+            oos="$(jq -er '.oos' "$metadata")"
+            kernel_kmi="$(jq -er '.kernel_kmi' "$metadata")"
+            resukisu="$(jq -er '.resukisu' "$metadata")"
+            susfs="$(jq -er '.susfs' "$metadata")"
+            zip="$(jq -er '.zip' "$metadata")"
+            expected_sha256="$(jq -er '.sha256' "$metadata")"
+
+            for value in "$metadata_slug" "$config" "$manifest" "$compatibility" "$oos" "$kernel_kmi" "$resukisu" "$susfs" "$zip" "$expected_sha256"; do
+              [[ "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != *'|'* && "$value" != *'`'* ]] || {
+                echo "::error::Unsafe metadata value for $slug"
+                exit 1
+              }
+            done
+            [[ "$metadata_slug" == "$slug" ]] || {
+              echo "::error::Metadata slug mismatch for $slug"
+              exit 1
+            }
+
+            case "$slug" in
+              oos15-op13-6-6-30)
+                expected_config=configs/oos15/OP13-6.6.30.json
+                expected_manifest=manifests/oos15/oneplus_13_6.6.30_v.xml
+                expected_compatibility='manifest-specific; no region inferred'
+                expected_oos=OOS15
+                ;;
+              oos15-op13-cph-6-6-56)
+                expected_config=configs/oos15/OP13-CPH-6.6.56.json
+                expected_manifest=manifests/oos15/oneplus_13_global_6.6.56_v.xml
+                expected_compatibility='CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US'
+                expected_oos=OOS15
+                ;;
+              oos15-op13-cph)
+                expected_config=configs/oos15/OP13-CPH.json
+                expected_manifest=manifests/oos15/oneplus_13_global_v.xml
+                expected_compatibility='CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US'
+                expected_oos=OOS15
+                ;;
+              oos15-op13-pjz)
+                expected_config=configs/oos15/OP13-PJZ.json
+                expected_manifest=manifests/oos15/oneplus_13_v.xml
+                expected_compatibility='PJZ110 CN'
+                expected_oos=OOS15
+                ;;
+              oos16-op13-global-6-6-118)
+                expected_config=configs/oos16/OP13-GLOBAL-6.6.118.json
+                expected_manifest=manifests/oos16/oneplus_13_global_6.6.118_w.xml
+                expected_compatibility='CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US'
+                expected_oos=OOS16
+                ;;
+              oos16-op13)
+                expected_config=configs/oos16/OP13.json
+                expected_manifest=manifests/oos16/oneplus_13_w.xml
+                expected_compatibility='manifest-specific; no region inferred'
+                expected_oos=OOS16
+                ;;
+            esac
+
+            [[ "$config" == "$expected_config" && "$manifest" == "$expected_manifest" &&
+              "$compatibility" == "$expected_compatibility" && "$oos" == "$expected_oos" ]] || {
+              echo "::error::Metadata mapping mismatch for $slug"
+              exit 1
+            }
+            [[ "$zip" == "$slug-"*.zip && "$zip" != */* && "$zip" != *[!A-Za-z0-9._-]* ]] || {
+              echo "::error::Unexpected ZIP basename for $slug: $zip"
+              exit 1
+            }
+            [[ "$expected_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "::error::Invalid ZIP SHA-256 for $slug"
+              exit 1
+            }
+            [[ -z "${seen_zip[$zip]+x}" ]] || {
+              echo "::error::Duplicate ZIP basename: $zip"
+              exit 1
+            }
+            seen_zip[$zip]=1
+
+            zip_path="$artifact_dir/$zip"
+            [[ -f "$zip_path" ]] || {
+              echo "::error::Missing ZIP for $slug: $zip_path"
+              exit 1
+            }
+            actual_sha256="$(sha256sum "$zip_path" | awk '{print $1}')"
+            [[ "$actual_sha256" == "$expected_sha256" ]] || {
+              echo "::error::ZIP SHA-256 mismatch for $slug"
+              exit 1
+            }
+            zip_paths+=("$zip_path")
+
+            printf '| `%s` | `%s` | `%s` | %s | %s | `%s` | `%s` | `%s` | `%s` | `%s` |\n' \
+              "$slug" "$config" "$manifest" "$compatibility" "$oos" "$kernel_kmi" \
+              "$resukisu" "$susfs" "$zip" "$expected_sha256" >> "$release_notes"
+          done
+
+          [[ "${#seen_zip[@]}" -eq 6 && "${#zip_paths[@]}" -eq 6 ]] || {
+            echo "::error::Aggregate release validation did not produce six unique ZIPs"
+            exit 1
+          }
+
+          tag="op13-all-r${RUN_NUMBER}-a${RUN_ATTEMPT}"
+          title="OnePlus 13 ReSukiSU + SUSFS builds r${RUN_NUMBER}"
+          gh release create "$tag" "${zip_paths[@]}" \
+            --title "$title" \
+            --notes-file "$release_notes" \
+            --target "$GITHUB_SHA"
