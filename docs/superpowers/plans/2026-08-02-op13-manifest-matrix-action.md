@@ -13,7 +13,11 @@
 - The whitelist is exactly six XML manifests and exactly six checked-in config JSON files; do not introduce variants or infer missing device/region mappings.
 - Never alter `artifacts/**`.
 - Preserve existing state pins and `workflow_dispatch` inputs.
-- Do not change composite actions.
+- The composite build action may add only the optional `upload_final_zip` input,
+  defaulting to `true`, and guard its internal final-ZIP upload with that input.
+  This is the backward-compatible regression contract: all existing callers
+  retain their current upload behavior; only this OP13 matrix caller passes
+  `false` to avoid an upload-artifact collision.
 - There is one non-matrix release job, one release tag/title, and one `gh release create`; do not use a fixed `Global` release title.
 
 ---
@@ -44,6 +48,8 @@ For every matrix build, write `release-metadata-<slug>.json` beside the produced
 - Modify/rename: `tests/op13-global-oos16-6.6.118-action-test.sh` → `tests/op13-all-action-test.sh`.
 - Delete: `.github/workflows/build-op13-global-oos16-6.6.118.yml`.
 - Create: `.github/workflows/build-op13-all.yml`.
+- Modify: `.github/actions/build-kernel/action.yml` only to add optional
+  `upload_final_zip` (default `true`) and guard its internal final-ZIP upload.
 - Keep only: `manifests/oos15/oneplus_13_6.6.30_v.xml`, `manifests/oos15/oneplus_13_global_6.6.56_v.xml`, `manifests/oos15/oneplus_13_global_v.xml`, `manifests/oos15/oneplus_13_v.xml`, `manifests/oos16/oneplus_13_global_6.6.118_w.xml`, and `manifests/oos16/oneplus_13_w.xml`.
 - Validate, but do not rewrite: the six config JSON files enumerated in the matrix interface.
 
@@ -78,7 +84,7 @@ For every matrix build, write `release-metadata-<slug>.json` beside the produced
   )
   ```
 
-- [ ] Require `.github/workflows/build-op13-all.yml` to declare `push` and `workflow_dispatch`, `strategy.fail-fast: false`, and a matrix `include` equal to the six interface rows (including exact paths/slugs/compatibility text). Assert unique slug-prefixed ZIP and artifact names, one non-matrix `publish` job, one dynamic tag/title/table, and exactly one `gh release create`; reject a fixed `Global` title.
+- [ ] Require `.github/workflows/build-op13-all.yml` to declare `push` and `workflow_dispatch`, `strategy.fail-fast: false`, and a matrix `include` equal to the six interface rows (including exact paths/slugs/compatibility text). Assert unique slug-prefixed ZIP and artifact names, one non-matrix `publish` job, one dynamic tag/title/table, and exactly one `gh release create`; reject a fixed `Global` title. Also assert the regression contract: `.github/actions/build-kernel/action.yml` declares `upload_final_zip` with default `true`, guards its internal final-ZIP upload on that input, and only `build-op13-all.yml` passes `upload_final_zip: false`.
 
 - [ ] Run the new contract immediately after its rewrite:
 
@@ -119,7 +125,7 @@ For every matrix build, write `release-metadata-<slug>.json` beside the produced
 
 - [ ] Delete `.github/workflows/build-op13-global-oos16-6.6.118.yml`; create `.github/workflows/build-op13-all.yml`; preserve existing state pins and dispatch inputs. Use the six exact `Interfaces` rows as `strategy.matrix.include`, with `fail-fast: false`.
 
-- [ ] Preserve the existing action inputs and pass only `matrix.config` as `op_config_json` to the composite action. Manifest and compatibility are workflow metadata only because the action has no such inputs. Set `archive_final_zip: false`; rename/prefix every built ZIP with its `slug`; create `release-metadata-${{ matrix.slug }}.json`; and upload its ZIP plus metadata as `op13-release-${{ matrix.slug }}`.
+- [ ] Add the optional composite-action input `upload_final_zip` with default `true` and guard its internal final-ZIP upload with `inputs.upload_final_zip == 'true'`. This preserves all existing callers. Preserve the remaining action inputs and pass `matrix.config` as `op_config_json` to the composite action; manifest and compatibility remain workflow metadata because the action has no such inputs. Set `archive_final_zip: false` and `upload_final_zip: false` for the OP13 matrix build; rename/prefix every built ZIP with its `slug`; create `release-metadata-${{ matrix.slug }}.json`; and upload its ZIP plus metadata as `op13-release-${{ matrix.slug }}`.
 
 - [ ] Define one non-matrix `publish` job that `needs: build` and relies on default all-success gating. Download the six unique artifacts; validate exactly six metadata JSON files, six unique ZIP filenames, and their SHA-256 values. Build a Markdown table containing the exact fields from **Runtime release metadata**. Derive only:
 
@@ -130,7 +136,7 @@ For every matrix build, write `release-metadata-<slug>.json` beside the produced
 
   Invoke `gh release create` once with the dynamic tag, title, Markdown body, and six validated ZIP paths.
 
-- [ ] Do not change any composite action. Run final checks:
+- [ ] Run final checks, including the `upload_final_zip` regression contract:
 
   ```bash
   bash tests/op13-all-action-test.sh
@@ -141,6 +147,6 @@ For every matrix build, write `release-metadata-<slug>.json` beside the produced
   git diff -- artifacts/
   ```
 
-  Expected outcome: the Bash contract passes; all recursive XML and six checked-in config JSON files parse; `git diff --check` is silent; status contains only intended manifest/test/workflow changes; and `git diff -- artifacts/` is empty. Runtime release metadata is deliberately not searched in the checked-in tree.
+  Expected outcome: the Bash contract passes, including default-true and guarded-upload assertions for the composite action and the OP13-only false override; all recursive XML and six checked-in config JSON files parse; `git diff --check` is silent; status contains only intended manifest/test/workflow/action changes; and `git diff -- artifacts/` is empty. Runtime release metadata is deliberately not searched in the checked-in tree.
 
 - [ ] Delegate final staging and commit to `git-agent`. Before committing, it must reconfirm artifacts are untouched, stage only the intended manifest/test/workflow paths, and report the commit SHA.
