@@ -98,6 +98,49 @@ if not input_match:
 if not re.search(r"(?m)^    default:\s*'true'\s*$", input_match.group("body")):
     raise SystemExit("upload_final_zip must default to 'true' for backward compatibility")
 
+slug_input = re.search(
+    r"(?ms)^  artifact_slug:\s*$\n(?P<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_]*:\s*$|^outputs:\s*$)",
+    action_text,
+)
+if not slug_input:
+    raise SystemExit("build action must declare the optional artifact_slug input")
+if not re.search(r"(?m)^    required:\s*false\s*$", slug_input.group("body")):
+    raise SystemExit("artifact_slug must remain optional for existing action callers")
+if not re.search(r"(?m)^    default:\s*''\s*$", slug_input.group("body")):
+    raise SystemExit("artifact_slug must default to the empty legacy-name behavior")
+
+path_step = re.search(
+    r"(?ms)^    - name:\s*Set Dir Paths\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not path_step:
+    raise SystemExit("build action must retain the Set Dir Paths step")
+path_body = path_step.group("body")
+if not re.search(
+    r"(?m)^        ARTIFACT_SLUG:\s*\$\{\{ inputs\.artifact_slug \}\}\s*$",
+    path_body,
+):
+    raise SystemExit("artifact_slug must enter shell through an environment variable")
+path_run = path_body[path_body.index("      run: |") :]
+if "${{ inputs.artifact_slug }}" in path_run:
+    raise SystemExit("artifact_slug must not be interpolated directly into shell source")
+if not re.search(r'(?m)^        DEBUG_ARTIFACT_SUFFIX=""$', path_run):
+    raise SystemExit("empty artifact_slug must preserve the exact legacy debug basename")
+if not re.search(
+    r'(?m)^        if \[\[ -n "\$ARTIFACT_SLUG" && ! "\$ARTIFACT_SLUG" =~ \^\[A-Za-z0-9\._-\]\+\$ \]\]; then$',
+    path_run,
+):
+    raise SystemExit("non-empty artifact_slug must be validated against the safe basename alphabet")
+if not re.search(
+    r'(?m)^          DEBUG_ARTIFACT_SUFFIX="_\$ARTIFACT_SLUG"$', path_run
+):
+    raise SystemExit("validated artifact_slug must derive an underscore-prefixed debug suffix")
+if not re.search(
+    r'(?m)^        DEBUG_ZIP_NAME="debug_\$\{OP_MODEL\}_\$\{OP_OS_VERSION\}\$\{DEBUG_ARTIFACT_SUFFIX\}\.zip"$',
+    path_run,
+):
+    raise SystemExit("debug ZIP basename must consume the optional validated suffix")
+
 upload_step = re.search(
     r"(?ms)^    - name:\s*Upload Artifacts\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
     action_text,
@@ -110,6 +153,16 @@ if not re.search(
 ):
     raise SystemExit("Upload Artifacts condition must require inputs.upload_final_zip == 'true'")
 
+debug_upload_step = re.search(
+    r"(?ms)^    - name:\s*Upload Debug Artifacts\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not debug_upload_step or not re.search(
+    r"(?m)^        name:\s*\$\{\{ env\.DEBUG_ZIP_NAME \}\}\s*$",
+    debug_upload_step.group("body"),
+):
+    raise SystemExit("debug artifact upload name must consume the suffix-aware debug ZIP basename")
+
 build_step = re.search(
     r"(?ms)^        uses:\s*\./\.github/actions/build-kernel\s*$\n(?P<body>.*?)(?=^      - name:|\Z)",
     workflow_text,
@@ -118,6 +171,11 @@ if not build_step or not re.search(
     r"(?m)^          upload_final_zip:\s*false\s*$", build_step.group("body")
 ):
     raise SystemExit("OP13 all-variant workflow must pass upload_final_zip: false to the composite build step")
+if not re.search(
+    r"(?m)^          artifact_slug:\s*\$\{\{ matrix\.slug \}\}\s*$",
+    build_step.group("body"),
+):
+    raise SystemExit("OP13 matrix workflow must pass matrix.slug as artifact_slug")
 PY
 
 python3 - "$workflow" <<'PY'
@@ -183,6 +241,7 @@ require_text(".sources.susfs.sha", "workflow must retain the SUSFS state pin")
 require_text("ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_sha }}", "workflow must pass the ReSukiSU state pin")
 require_text("susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_sha }}", "workflow must pass the SUSFS state pin")
 require_text("op_config_json: ${{ steps.config.outputs.json }}", "workflow must pass the matrix config JSON to the build action")
+require_text("artifact_slug: ${{ matrix.slug }}", "workflow must pass the unique matrix slug to debug uploads")
 require_text("archive_final_zip: false", "matrix builds must upload uniquely named ZIPs directly")
 require_text("release-metadata-${{ matrix.slug }}.json", "each matrix build must write slugged release metadata")
 require_text("op13-release-${{ matrix.slug }}", "each matrix build must use a slugged artifact name")
@@ -192,17 +251,131 @@ for slug, _, _, _ in expected_rows:
 
 require(r"^\s{2}publish:\s*$", "workflow must have one publish job")
 publish_start = text.index("\n  publish:\n")
+build_start = text.index("\n  build:\n")
+build_section = text[build_start:publish_start]
 publish_section = text[publish_start:]
 if "matrix:" in publish_section:
     raise SystemExit("publish must be a non-matrix job")
-require_text("needs: build", "publish must depend on all matrix builds")
+if re.search(r"(?m)^\s+continue-on-error:\s*", build_section + publish_section):
+    raise SystemExit("build and publish must not weaken failure propagation with continue-on-error")
+needs_lines = re.findall(r"(?m)^ {4}needs:\s*([^\n]+)$", text[text.index("\njobs:\n") :])
+if needs_lines != ["build"] or not re.search(r"(?m)^ {4}needs:\s*build\s*$", publish_section):
+    raise SystemExit("needs: build must appear exactly once and be scoped to publish")
+if re.search(r"(?m)^ {4}if:\s*.*\b(?:always|failure|cancelled)\s*\(", publish_section):
+    raise SystemExit("publish must rely on default all-success gating")
 require_text("op13-all-r${RUN_NUMBER}-a${RUN_ATTEMPT}", "release tag must be dynamic and shared")
 require_text("OnePlus 13 ReSukiSU + SUSFS builds r${RUN_NUMBER}", "release title must be dynamic and non-regional")
 require_text("| Slug | Config | Manifest | Compatibility | OOS | Kernel/KMI | ReSukiSU | SUSFS | ZIP | SHA-256 |", "release body must generate the metadata table")
-require_text("release-metadata-*.json", "publish must validate all six metadata files")
-require_text("gh release create", "publish must create the release")
+
+config_step = re.search(
+    r"(?ms)^      - name:\s*Validate and read matrix configuration\s*$\n(?P<body>.*?)(?=^      - name:|\Z)",
+    build_section,
+)
+if not config_step:
+    raise SystemExit("workflow must retain the matrix state-reading step")
+config_body = config_step.group("body")
+for required, message in [
+    ('.target.kmi', "state-reading step must extract the authoritative Global KMI"),
+    ('[[ "$global_kmi" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+-android[0-9]+-[A-Za-z0-9._+-]+$ ]]', "state-reading step must validate the Global KMI"),
+    ('echo "global_kmi=$global_kmi" >> "$GITHUB_OUTPUT"', "state-reading step must expose the Global KMI"),
+]:
+    if required not in config_body:
+        raise SystemExit(message)
+
+prefix_step = re.search(
+    r"(?ms)^      - name:\s*Prefix and describe release ZIP\s*$\n(?P<body>.*?)(?=^      - name:|\Z)",
+    build_section,
+)
+if not prefix_step:
+    raise SystemExit("workflow must retain the release metadata step")
+prefix_body = prefix_step.group("body")
+for required, message in [
+    ('GLOBAL_KMI: ${{ steps.config.outputs.global_kmi }}', "metadata step must receive the validated Global KMI through env"),
+    ('kernel_kmi="$KERNEL_VERSION"', "metadata must retain build-output fallback for non-Global rows"),
+    ('if [[ "$SLUG" == "oos16-op13-global-6-6-118" ]]; then', "authoritative KMI must be selected only by the exact Global slug"),
+    ('kernel_kmi="$GLOBAL_KMI"', "the exact Global row must use the authoritative state KMI"),
+    ('--arg kernel_kmi "$kernel_kmi"', "metadata JSON must receive the selected KMI value"),
+    ('metadata="$GITHUB_WORKSPACE/release-metadata-$SLUG.json"', "validated slug must determine the metadata filename"),
+]:
+    if required not in prefix_body:
+        raise SystemExit(message)
+if "${{ matrix.slug }}" in prefix_body[prefix_body.index("        run: |") :]:
+    raise SystemExit("matrix.slug must not be interpolated directly into metadata shell source")
+if re.search(r"(?m)^ {12}(?:kernel_kmi|kmi):", "\n".join(row_blocks)):
+    raise SystemExit("matrix rows must not invent KMI values")
+
+download_steps = re.findall(
+    r"(?ms)^      - name:\s*Download ([^\n]+)\s*$\n(?P<body>.*?)(?=^      - name:|\Z)",
+    publish_section,
+)
+expected_slugs = [row[0] for row in expected_rows]
+if [slug for slug, _ in download_steps] != expected_slugs:
+    raise SystemExit("publish must have one explicitly named download step for each approved slug")
+if len(re.findall(r"(?m)^        uses:\s*actions/download-artifact@v[0-9]+\s*$", publish_section)) != 6:
+    raise SystemExit("publish must download exactly six release artifacts")
+for slug, body in download_steps:
+    if not re.search(rf"(?m)^          name:\s*op13-release-{re.escape(slug)}\s*$", body):
+        raise SystemExit(f"download step must request the exact artifact for {slug}")
+    if not re.search(rf"(?m)^          path:\s*release-dist/{re.escape(slug)}\s*$", body):
+        raise SystemExit(f"download step must isolate the artifact directory for {slug}")
+
+publish_step = re.search(
+    r"(?ms)^      - name:\s*Validate and publish aggregate release\s*$\n(?P<body>.*?)(?=^      - name:|\Z)",
+    publish_section,
+)
+if not publish_step:
+    raise SystemExit("publish must retain a single validation-and-release step")
+publish_body = publish_step.group("body")
+slugs_match = re.search(r"(?ms)^          slugs=\(\s*$\n(?P<body>.*?)^          \)\s*$", publish_body)
+if not slugs_match:
+    raise SystemExit("publish must declare the exact expected slug inventory")
+published_slugs = [line.strip() for line in slugs_match.group("body").splitlines() if line.strip()]
+if published_slugs != expected_slugs:
+    raise SystemExit(f"publish slug inventory must equal the matrix rows; got {published_slugs!r}")
+for required, message in [
+    ("find release-dist -type f -name 'release-metadata-*.json'", "publish must enumerate metadata files"),
+    ("find release-dist -type f -name '*.zip'", "publish must enumerate ZIP files"),
+    ('[[ "${#metadata_files[@]}" -eq 6 ]]', "publish must require exactly six metadata files"),
+    ('[[ "${#zip_files[@]}" -eq 6 ]]', "publish must require exactly six ZIP files"),
+    ('keys == ["compatibility", "config", "kernel_kmi", "manifest", "oos", "resukisu", "sha256", "slug", "susfs", "zip"]', "publish must require the exact metadata schema"),
+    ('all(.[]; type == "string" and length > 0)', "publish must require every metadata field to be a non-empty string"),
+    ('declare -A seen_zip=()', "publish must track unique ZIP basenames"),
+    ('[[ -z "${seen_zip[$zip]+x}" ]]', "publish must reject duplicate ZIP basenames"),
+    ('actual_sha256="$(sha256sum "$zip_path" | awk \'{print $1}\')"', "publish must recompute every downloaded ZIP SHA-256"),
+    ('[[ "$actual_sha256" == "$expected_sha256" ]]', "publish must compare every recomputed ZIP SHA-256"),
+    ('zip_paths+=("$zip_path")', "publish must build a validated release asset list"),
+]:
+    if required not in publish_body:
+        raise SystemExit(message)
+
+mapping_expectations = {
+    slug: (config, manifest, compatibility, "OOS15" if slug.startswith("oos15-") else "OOS16")
+    for slug, config, manifest, compatibility in expected_rows
+}
+for slug, expected in mapping_expectations.items():
+    mapping = re.search(
+        rf"(?ms)^              {re.escape(slug)}\)\s*$\n(?P<body>.*?)(?=^                ;;\s*$)",
+        publish_body,
+    )
+    if not mapping:
+        raise SystemExit(f"publish validation is missing the exact mapping branch for {slug}")
+    mapping_body = mapping.group("body")
+    actual = []
+    for field in ("config", "manifest", "compatibility", "oos"):
+        value = re.search(rf"(?m)^                expected_{field}=(?:'([^']*)'|([^\n]+))$", mapping_body)
+        actual.append((value.group(1) if value and value.group(1) is not None else value.group(2).strip()) if value else None)
+    if tuple(actual) != expected:
+        raise SystemExit(f"publish mapping mismatch for {slug}: {tuple(actual)!r}")
+
+sha_check = publish_body.index('[[ "$actual_sha256" == "$expected_sha256" ]]')
+asset_append = publish_body.index('zip_paths+=("$zip_path")')
+release_call = publish_body.index('gh release create "$tag" "${zip_paths[@]}"')
+if not sha_check < asset_append < release_call:
+    raise SystemExit("only SHA-validated ZIP paths may reach gh release create")
 if len(re.findall(r"\bgh\s+release\s+create\b", text)) != 1:
     raise SystemExit("workflow must invoke gh release create exactly once")
+if not re.search(r'(?m)^          gh release create "\$tag" "\$\{zip_paths\[@\]\}" \\$', publish_body):
+    raise SystemExit("gh release create must consume only the validated ZIP path array")
 
 print("PASS: OP13 all-variant action contract")
 PY

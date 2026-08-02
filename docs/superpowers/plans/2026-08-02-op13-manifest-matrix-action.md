@@ -14,7 +14,9 @@
 - Never alter `artifacts/**`.
 - Preserve existing state pins and `workflow_dispatch` inputs.
 - The composite build action may add only the optional `upload_final_zip` input,
-  defaulting to `true`, and guard its internal final-ZIP upload with that input.
+  defaulting to `true`, and optional `artifact_slug`, defaulting to empty. Guard
+  the final-ZIP upload with `upload_final_zip`; validate every non-empty slug and
+  suffix debug names while preserving exact legacy names when empty.
   This is the backward-compatible regression contract: all existing callers
   retain their current upload behavior; only this OP13 matrix caller passes
   `false` to avoid an upload-artifact collision.
@@ -42,6 +44,8 @@ Do not infer a regional mapping for `configs/oos15/OP13-6.6.30.json` or `configs
 ### Runtime release metadata
 
 For every matrix build, write `release-metadata-<slug>.json` beside the produced ZIP. The JSON and release-table rows must contain `slug`, exact `config`, exact `manifest`, `compatibility`, `oos`, `kernel_kmi` when known, `resukisu`, `susfs`, `zip`, and `sha256`.
+Use validated state `.target.kmi` only for `oos16-op13-global-6-6-118` and
+retain the build action's kernel-version output as the fallback for other rows.
 
 ## Files
 
@@ -49,7 +53,8 @@ For every matrix build, write `release-metadata-<slug>.json` beside the produced
 - Delete: `.github/workflows/build-op13-global-oos16-6.6.118.yml`.
 - Create: `.github/workflows/build-op13-all.yml`.
 - Modify: `.github/actions/build-kernel/action.yml` only to add optional
-  `upload_final_zip` (default `true`) and guard its internal final-ZIP upload.
+  `upload_final_zip` (default `true`) and `artifact_slug` (default empty), guard
+  its final-ZIP upload, and make debug artifact names slug-aware.
 - Keep only: `manifests/oos15/oneplus_13_6.6.30_v.xml`, `manifests/oos15/oneplus_13_global_6.6.56_v.xml`, `manifests/oos15/oneplus_13_global_v.xml`, `manifests/oos15/oneplus_13_v.xml`, `manifests/oos16/oneplus_13_global_6.6.118_w.xml`, and `manifests/oos16/oneplus_13_w.xml`.
 - Validate, but do not rewrite: the six config JSON files enumerated in the matrix interface.
 
@@ -84,7 +89,7 @@ For every matrix build, write `release-metadata-<slug>.json` beside the produced
   )
   ```
 
-- [ ] Require `.github/workflows/build-op13-all.yml` to declare `push` and `workflow_dispatch`, `strategy.fail-fast: false`, and a matrix `include` equal to the six interface rows (including exact paths/slugs/compatibility text). Assert unique slug-prefixed ZIP and artifact names, one non-matrix `publish` job, one dynamic tag/title/table, and exactly one `gh release create`; reject a fixed `Global` title. Also assert the regression contract: `.github/actions/build-kernel/action.yml` declares `upload_final_zip` with default `true`, guards its internal final-ZIP upload on that input, and only `build-op13-all.yml` passes `upload_final_zip: false`.
+- [ ] Require `.github/workflows/build-op13-all.yml` to declare `push` and `workflow_dispatch`, `strategy.fail-fast: false`, and a matrix `include` equal to the six interface rows. Assert unique slug-prefixed ZIP and artifact names, one all-success non-matrix `publish` job, one dynamic tag/title/table, and exactly one `gh release create`. Assert the `upload_final_zip` default/guard/OP13 override plus the empty `artifact_slug` legacy behavior, safe-character validation, both debug name consumers, and the OP13 caller's `matrix.slug`.
 
 - [ ] Run the new contract immediately after its rewrite:
 
@@ -125,9 +130,12 @@ For every matrix build, write `release-metadata-<slug>.json` beside the produced
 
 - [ ] Delete `.github/workflows/build-op13-global-oos16-6.6.118.yml`; create `.github/workflows/build-op13-all.yml`; preserve existing state pins and dispatch inputs. Use the six exact `Interfaces` rows as `strategy.matrix.include`, with `fail-fast: false`.
 
-- [ ] Add the optional composite-action input `upload_final_zip` with default `true` and guard its internal final-ZIP upload with `inputs.upload_final_zip == 'true'`. This preserves all existing callers. Preserve the remaining action inputs and pass `matrix.config` as `op_config_json` to the composite action; manifest and compatibility remain workflow metadata because the action has no such inputs. Set `archive_final_zip: false` and `upload_final_zip: false` for the OP13 matrix build; rename/prefix every built ZIP with its `slug`; create `release-metadata-${{ matrix.slug }}.json`; and upload its ZIP plus metadata as `op13-release-${{ matrix.slug }}`.
+- [ ] Add optional `upload_final_zip` (default `true`) and `artifact_slug` (default empty) composite-action inputs. Guard final-ZIP upload; validate non-empty slugs through an environment variable and suffix both debug names without changing empty-input legacy names. Pass `matrix.config` and `matrix.slug`; set `archive_final_zip: false` and `upload_final_zip: false`; prefix every built ZIP; create slugged metadata; and upload it as `op13-release-${{ matrix.slug }}`.
 
-- [ ] Define one non-matrix `publish` job that `needs: build` and relies on default all-success gating. Download the six unique artifacts; validate exactly six metadata JSON files, six unique ZIP filenames, and their SHA-256 values. Build a Markdown table containing the exact fields from **Runtime release metadata**. Derive only:
+- [ ] Extract and validate `.target.kmi`; use it as `kernel_kmi` only for the
+  exact Global OOS16 slug and retain the build-output fallback elsewhere.
+
+- [ ] Define one non-matrix `publish` job that `needs: build` and relies on default all-success gating. Reject failure overrides and `continue-on-error` in the contract. Download the six exact artifacts; validate six metadata files, six ZIPs, exact schema/mappings, unique basenames, and recomputed SHA-256 values. Pass only validated ZIP paths to the release command. Build the required Markdown table. Derive only:
 
   ```bash
   tag="op13-all-r${RUN_NUMBER}-a${RUN_ATTEMPT}"

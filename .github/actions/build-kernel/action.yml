@@ -52,6 +52,11 @@ inputs:
     required: false
     type: boolean
     default: 'true'
+  artifact_slug:
+    description: 'Optional safe suffix that makes debug artifact names unique for matrix callers'
+    required: false
+    type: string
+    default: ''
   github_token:
     description: 'GitHub Token'
     required: true
@@ -348,6 +353,8 @@ runs:
 
     - name: Set Dir Paths
       shell: bash
+      env:
+        ARTIFACT_SLUG: ${{ inputs.artifact_slug }}
       run: |
         set -euo pipefail
         CONFIG_DIR="$GITHUB_WORKSPACE/$CONFIG"
@@ -375,7 +382,15 @@ runs:
         echo "SUSFS_FOLDER=$SUSFS_DIR" >> "$GITHUB_ENV"
         echo "KSU_FOLDER=$KSU_DIR" >> "$GITHUB_ENV"
         
-        DEBUG_ZIP_NAME="debug_${OP_MODEL}_${OP_OS_VERSION}.zip"
+        if [[ -n "$ARTIFACT_SLUG" && ! "$ARTIFACT_SLUG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+          echo "::error::Invalid artifact_slug: only letters, digits, dot, underscore, and dash are allowed"
+          exit 1
+        fi
+        DEBUG_ARTIFACT_SUFFIX=""
+        if [[ -n "$ARTIFACT_SLUG" ]]; then
+          DEBUG_ARTIFACT_SUFFIX="_$ARTIFACT_SLUG"
+        fi
+        DEBUG_ZIP_NAME="debug_${OP_MODEL}_${OP_OS_VERSION}${DEBUG_ARTIFACT_SUFFIX}.zip"
         echo "DEBUG_ZIP_NAME=$DEBUG_ZIP_NAME" >> "$GITHUB_ENV"
 
     - name: Set Kernel build-tools to Path

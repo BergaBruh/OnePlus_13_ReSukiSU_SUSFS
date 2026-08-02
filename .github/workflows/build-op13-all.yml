@@ -157,6 +157,7 @@ jobs:
 
           resukisu_sha="$(jq -er '.sources.resukisu.sha' "$state")"
           susfs_sha="$(jq -er '.sources.susfs.sha' "$state")"
+          global_kmi="$(jq -er '.target.kmi' "$state")"
           [[ "$resukisu_sha" =~ ^[0-9a-f]{40}$ ]] || {
             echo "::error::Invalid ReSukiSU state pin"
             exit 1
@@ -165,8 +166,13 @@ jobs:
             echo "::error::Invalid SUSFS state pin"
             exit 1
           }
+          [[ "$global_kmi" =~ ^[0-9]+\.[0-9]+\.[0-9]+-android[0-9]+-[A-Za-z0-9._+-]+$ ]] || {
+            echo "::error::Invalid authoritative Global KMI"
+            exit 1
+          }
 
           echo "json=$(jq -c . "$MATRIX_CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "global_kmi=$global_kmi" >> "$GITHUB_OUTPUT"
           echo "model=$model" >> "$GITHUB_OUTPUT"
           echo "resukisu_sha=$resukisu_sha" >> "$GITHUB_OUTPUT"
           echo "susfs_sha=$susfs_sha" >> "$GITHUB_OUTPUT"
@@ -182,6 +188,7 @@ jobs:
           optimize_level: ${{ inputs.optimize_level || 'O2' }}
           clean: ${{ inputs.clean_build || false }}
           debug: ${{ inputs.debug || false }}
+          artifact_slug: ${{ matrix.slug }}
           archive_final_zip: false
           upload_final_zip: false
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -192,6 +199,7 @@ jobs:
           BUILD_SHA256: ${{ steps.build.outputs.zip_sha256 }}
           COMPATIBILITY: ${{ matrix.compatibility }}
           CONFIG_PATH: ${{ matrix.config }}
+          GLOBAL_KMI: ${{ steps.config.outputs.global_kmi }}
           KERNEL_VERSION: ${{ steps.build.outputs.kernel_version }}
           MANIFEST_PATH: ${{ matrix.manifest }}
           MODEL: ${{ steps.config.outputs.model }}
@@ -217,6 +225,11 @@ jobs:
             echo "::error::Unexpected ZIP SHA-256: $BUILD_SHA256"
             exit 1
           }
+
+          kernel_kmi="$KERNEL_VERSION"
+          if [[ "$SLUG" == "oos16-op13-global-6-6-118" ]]; then
+            kernel_kmi="$GLOBAL_KMI"
+          fi
 
           for value in "$KERNEL_VERSION" "$RESUKISU_VERSION" "$SUSFS_VERSION"; do
             [[ -n "$value" && "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != *'|'* ]] || {
@@ -248,14 +261,14 @@ jobs:
             exit 1
           }
 
-          metadata="$GITHUB_WORKSPACE/release-metadata-${{ matrix.slug }}.json"
+          metadata="$GITHUB_WORKSPACE/release-metadata-$SLUG.json"
           jq -n \
             --arg slug "$SLUG" \
             --arg config "$CONFIG_PATH" \
             --arg manifest "$MANIFEST_PATH" \
             --arg compatibility "$COMPATIBILITY" \
             --arg oos "$OOS" \
-            --arg kernel_kmi "$KERNEL_VERSION" \
+            --arg kernel_kmi "$kernel_kmi" \
             --arg resukisu "$RESUKISU_VERSION @ $RESUKISU_SHA" \
             --arg susfs "$SUSFS_VERSION @ $SUSFS_SHA" \
             --arg zip "$prefixed_zip" \
