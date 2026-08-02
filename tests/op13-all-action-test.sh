@@ -32,6 +32,15 @@ actual_manifest_list=$(printf '%s\n' "${actual_manifests[@]}")
 [[ "$actual_manifest_list" == "$expected_manifest_list" ]] ||
   fail "tracked manifest inventory must be exactly the approved six files"
 
+mapfile -t actual_op13_configs < <(
+  git -C "$repo_root" ls-files 'configs/oos15/*.json' 'configs/oos16/*.json' |
+    awk -F/ '$3 ~ /^OP13(-.*)?\.json$/ { print }' | sort
+)
+expected_config_list=$(printf '%s\n' "${expected_configs[@]}")
+actual_op13_config_list=$(printf '%s\n' "${actual_op13_configs[@]}")
+[[ "$actual_op13_config_list" == "$expected_config_list" ]] ||
+  fail "tracked base OP13 config inventory must be exactly the approved six files"
+
 python3 - "$repo_root" "${expected_configs[@]}" <<'PY'
 import json
 import sys
@@ -88,16 +97,26 @@ for name, kind, default in [
     pattern = rf"(?ms)^\s{{6}}{name}:\s*$.*?^\s{{8}}type:\s*{kind}\s*$.*?^\s{{8}}default:\s*{default}\s*$"
     require(pattern, f"workflow_dispatch input {name} must preserve its type/default")
 
-require(r"^\s{4}fail-fast:\s*false\s*$", "matrix strategy must set fail-fast: false")
-require(r"^\s{6}include:\s*$", "matrix strategy must use an include list")
+require(
+    r"(?ms)^\s{6}optimize_level:\s*$.*?^\s{8}options:\s*\[O2, O3\]\s*$",
+    "workflow_dispatch optimize_level must preserve O2/O3 choices",
+)
+
+require(r"^\s{4}strategy:\s*$", "build job must declare a strategy")
+require(r"^\s{6}fail-fast:\s*false\s*$", "matrix strategy must set fail-fast: false")
+require(r"^\s{6}matrix:\s*$", "build job strategy must declare a matrix")
+require(r"^\s{8}include:\s*$", "matrix strategy must use an include list")
 
 include_section = text[text.index("include:") :]
-rows = re.findall(
-    r"(?ms)^\s*-\s+slug:\s*([^\n]+)\n\s*config:\s*([^\n]+)\n\s*manifest:\s*([^\n]+)\n\s*compatibility:\s*([^\n]+)",
-    include_section,
-)
+row_blocks = re.findall(r"(?ms)^ {10}- slug:\s*[^\n]+.*?(?=^ {10}- slug:|\Z)", include_section)
+rows = []
+for block in row_blocks:
+    fields = dict(re.findall(r"(?m)^ {12}([A-Za-z_]+):\s*([^\n]+)$", block))
+    rows.append(tuple(fields.get(key, "") for key in ("slug", "config", "manifest", "compatibility")))
 if rows != expected_rows:
     raise SystemExit(f"matrix include must equal the six approved rows; got {rows!r}")
+if re.search(r"(?m)^ {12}(?:region|model):", "\n".join(row_blocks)):
+    raise SystemExit("matrix rows must not invent region or model mappings")
 
 require_text(".github/update-state/op13-upstreams.json", "workflow must retain the pinned upstream state source")
 require_text(".sources.resukisu.sha", "workflow must retain the ReSukiSU state pin")
