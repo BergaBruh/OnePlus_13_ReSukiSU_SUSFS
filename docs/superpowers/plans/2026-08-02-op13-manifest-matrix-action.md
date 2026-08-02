@@ -52,11 +52,13 @@ retain the build action's kernel-version output as the fallback for other rows.
 - Modify/rename: `tests/op13-global-oos16-6.6.118-action-test.sh` → `tests/op13-all-action-test.sh`.
 - Delete: `.github/workflows/build-op13-global-oos16-6.6.118.yml`.
 - Create: `.github/workflows/build-op13-all.yml`.
-- Modify: `.github/actions/build-kernel/action.yml` only to add optional
+- Modify: `.github/actions/build-kernel/action.yml` to add optional
   `upload_final_zip` (default `true`) and `artifact_slug` (default empty), guard
-  its final-ZIP upload, and make debug artifact names slug-aware.
+  its final-ZIP upload, make debug artifact names slug-aware, and separate the
+  JSON `module_overlay` flag from `custom_patches`.
 - Keep only: `manifests/oos15/oneplus_13_6.6.30_v.xml`, `manifests/oos15/oneplus_13_global_6.6.56_v.xml`, `manifests/oos15/oneplus_13_global_v.xml`, `manifests/oos15/oneplus_13_v.xml`, `manifests/oos16/oneplus_13_global_6.6.118_w.xml`, and `manifests/oos16/oneplus_13_w.xml`.
-- Validate, but do not rewrite: the six config JSON files enumerated in the matrix interface.
+- Modify: the six config JSON files enumerated in the matrix interface, setting
+  `"module_overlay": false` explicitly in each.
 
 ## Task 1 — Establish the exact six-variant executable contract
 
@@ -158,3 +160,76 @@ retain the build action's kernel-version output as the fallback for other rows.
   Expected outcome: the Bash contract passes, including default-true and guarded-upload assertions for the composite action and the OP13-only false override; all recursive XML and six checked-in config JSON files parse; `git diff --check` is silent; status contains only intended manifest/test/workflow/action changes; and `git diff -- artifacts/` is empty. Runtime release metadata is deliberately not searched in the checked-in tree.
 
 - [ ] Delegate final staging and commit to `git-agent`. Before committing, it must reconfirm artifacts are untouched, stage only the intended manifest/test/workflow paths, and report the commit SHA.
+
+## Task 4 — Separate module overlay from custom patches
+
+**Interfaces:**
+
+- Consumes: JSON `op_config_json`, `OP_CUSTOM_PATCHES`, `KERNEL_VER`,
+  `KERNEL_PATCHES_FOLDER`, and `COMMON_KERNEL_FOLDER` from the composite action.
+- Produces: validated `OP_MODULE_OVERLAY`; a standalone module-overlay step that
+  is enabled only by that variable; six explicit disabled OP13 configurations.
+
+- [ ] Extend `tests/op13-all-action-test.sh` before production changes. Require:
+  missing `module_overlay` to export `OP_MODULE_OVERLAY=false`; boolean-only
+  validation; exact `"module_overlay": false` in all six matrix configs; a
+  standalone step conditioned on `${{ env.OP_MODULE_OVERLAY == 'true' }}`;
+  absence of module-overlay patch/copy logic from `Apply Other Patches`; and
+  explicit missing patch/modules payload errors in the standalone step.
+
+- [ ] Run the contract in the RED state:
+
+  ```bash
+  bash -n tests/op13-all-action-test.sh
+  bash tests/op13-all-action-test.sh
+  ```
+
+  Expected outcome: syntax passes and the contract fails specifically because
+  the independent `module_overlay` behavior has not been implemented.
+
+- [ ] In `.github/actions/build-kernel/action.yml`, make an absent JSON key
+  default safely and validate its effective value:
+
+  ```bash
+  if ! jq -e 'has("module_overlay")' /tmp/config.json >/dev/null; then
+    echo "OP_MODULE_OVERLAY=false" >> "$GITHUB_ENV"
+  fi
+  module_overlay="${OP_MODULE_OVERLAY:-false}"
+  ```
+
+  Reject every effective value except `true` or `false`. Do not add a composite
+  action input and do not inherit the value from `custom_patches`.
+
+- [ ] Move the existing overlay patch, conversion, module-selection/copy, and
+  ccache-hash logic unchanged into a separate composite step with:
+
+  ```yaml
+  if: ${{ env.OP_MODULE_OVERLAY == 'true' }}
+  ```
+
+  Preserve the existing `KERNEL_VERSION <= 5.16` skip. For an enabled eligible
+  kernel, check the exact patch file and modules directory before changing the
+  kernel tree; emit an actionable `::error::` containing the missing path and
+  exit non-zero. Leave all non-overlay `custom_patches` behavior unchanged.
+
+- [ ] Add `"module_overlay": false` to exactly the six OP13 JSON configs listed
+  in `Files`, without reformatting unrelated keys.
+
+- [ ] Run the GREEN and regression checks:
+
+  ```bash
+  bash -n tests/op13-all-action-test.sh
+  bash tests/op13-all-action-test.sh
+  jq -e . configs/oos15/OP13-6.6.30.json configs/oos15/OP13-CPH-6.6.56.json configs/oos15/OP13-CPH.json configs/oos15/OP13-PJZ.json configs/oos16/OP13-GLOBAL-6.6.118.json configs/oos16/OP13.json >/dev/null
+  find manifests -type f -name '*.xml' -print0 | xargs -0 -r -n1 xmllint --noout
+  test "$(git ls-files 'manifests/**/*.xml' | wc -l)" -eq 6
+  git diff --check
+  git diff -- artifacts/
+  ```
+
+  Expected outcome: every command succeeds and `artifacts/**` has no diff.
+
+- [ ] Obtain independent code and QA review, commit only the approved files,
+  fast-forward `main`, push without force, dispatch `build-op13-all.yml`, and
+  verify the run uses the pushed SHA. Completion requires all six matrix jobs
+  and the single publish job to succeed; a merely queued run is not sufficient.
