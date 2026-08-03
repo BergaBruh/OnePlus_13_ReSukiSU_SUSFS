@@ -29,6 +29,11 @@ on:
           - android13-5.15
           - android12-5.10
         default: OOS14+15+16
+      config_path:
+        description: 'Optional exact config path for a single-device validation build (for example configs/oos16/OP-ACE-2.json)'
+        required: false
+        type: string
+        default: ''
       ksu_type:
         description: 'Select KSU Type'
         required: true
@@ -119,11 +124,21 @@ jobs:
           echo "::group::Matrix generation"
           
           input="${{ inputs.op_model }}"
+          config_path="${{ inputs.config_path }}"
           ksu_type="${{ inputs.ksu_type }}"
           ksu_hash="${{ inputs.ksu_branch_or_hash }}"
           
           echo "[" > matrix.json
-          mapfile -t all_json_files < <(find configs/ -name "*.json" -print0 | xargs -0 -n1)
+          if [ -n "$config_path" ]; then
+            if [[ "$config_path" != configs/*.json || "$config_path" == *".."* || ! -f "$config_path" ]]; then
+              echo "::error::Invalid config_path '$config_path'; expected an existing configs/*.json file"
+              exit 1
+            fi
+            all_json_files=("$config_path")
+            echo "Single-device validation config: $config_path"
+          else
+            mapfile -t all_json_files < <(find configs/ -name "*.json" -print0 | xargs -0 -n1)
+          fi
           for i in "${!all_json_files[@]}"; do
             file="${all_json_files[$i]}"
             if [ -f "$file" ]; then
@@ -190,7 +205,11 @@ jobs:
           fi
           
           # Inject KSU type and hash into every device config
-          merged_matrix=$(jq -n --argjson devices "$filtered" --arg ksu_type "$ksu_type" --arg ksu_hash "$ksu_hash" '[ $devices[] as $dev | ($dev + {ksu_type: $ksu_type, ksu_hash: $ksu_hash}) ]')
+          merged_matrix=$(jq \
+            --arg ksu_type "$ksu_type" \
+            --arg ksu_hash "$ksu_hash" \
+            '[.[] | . + {ksu_type: $ksu_type, ksu_hash: $ksu_hash}]' \
+            <<<"$filtered")
           final_count=$(echo "$merged_matrix" | jq 'length')
           
           echo "✅ Found $final_count device(s) to build"

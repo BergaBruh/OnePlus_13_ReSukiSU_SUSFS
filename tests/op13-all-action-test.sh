@@ -10,14 +10,23 @@ expected_manifests=(
   "manifests/oos15/oneplus_13_global_6.6.56_v.xml"
   "manifests/oos15/oneplus_13_global_v.xml"
   "manifests/oos15/oneplus_13_v.xml"
+  "manifests/oos16/oneplus_13_6.6.89_w.xml"
   "manifests/oos16/oneplus_13_global_6.6.118_w.xml"
   "manifests/oos16/oneplus_13_w.xml"
+  "manifests/oos16/oneplus_13t_6.6.89_w.xml"
+  "manifests/oos16/oneplus_ace3_pro_6.1.118_w.xml"
+  "manifests/oos16/oneplus_ace5_pro_6.6.89_w.xml"
+  "manifests/oos16/oneplus_n6_w.xml"
+  "manifests/oos16/oneplus_nord_3_w.xml"
+  "manifests/oos16/oneplus_turbo_6v_6.1.118_w.xml"
+  "manifests/oos16/oneplus_turbo_6x_w.xml"
 )
 expected_configs=(
   "configs/oos15/OP13-6.6.30.json"
   "configs/oos15/OP13-CPH-6.6.56.json"
   "configs/oos15/OP13-CPH.json"
   "configs/oos15/OP13-PJZ.json"
+  "configs/oos16/OP13-6.6.89.json"
   "configs/oos16/OP13-GLOBAL-6.6.118.json"
   "configs/oos16/OP13.json"
 )
@@ -31,7 +40,7 @@ mapfile -t actual_manifests < <(git -C "$repo_root" ls-files 'manifests/**/*.xml
 expected_manifest_list=$(printf '%s\n' "${expected_manifests[@]}")
 actual_manifest_list=$(printf '%s\n' "${actual_manifests[@]}")
 [[ "$actual_manifest_list" == "$expected_manifest_list" ]] ||
-  fail "tracked manifest inventory must be exactly the approved six files"
+  fail "tracked manifest inventory must be exactly the approved fourteen files"
 
 mapfile -t actual_op13_configs < <(
   git -C "$repo_root" ls-files 'configs/oos15/*.json' 'configs/oos16/*.json' |
@@ -40,7 +49,7 @@ mapfile -t actual_op13_configs < <(
 expected_config_list=$(printf '%s\n' "${expected_configs[@]}")
 actual_op13_config_list=$(printf '%s\n' "${actual_op13_configs[@]}")
 [[ "$actual_op13_config_list" == "$expected_config_list" ]] ||
-  fail "tracked base OP13 config inventory must be exactly the approved six files"
+  fail "tracked base OP13 config inventory must be exactly the approved seven files"
 
 python3 - "$repo_root" "${expected_configs[@]}" <<'PY'
 import json
@@ -211,6 +220,29 @@ if not postcondition:
     raise SystemExit("SUSFS compatibility postcondition must fail only when the exact task_mmu.c call remains and the page_size_compat.h declaration is absent")
 if "::error::" not in postcondition.group("body") or "exit 1" not in postcondition.group("body"):
     raise SystemExit("SUSFS compatibility postcondition must emit ::error:: and exit 1")
+
+nameidata_legacy_signature = "static void set_nameidata\\(struct nameidata \\*p, int dfd, struct filename \\*name\\)"
+nameidata_old_call = "old_set_nameidata_call='set_nameidata(nd, old_dfd, fake_filename, NULL);'"
+nameidata_new_call = "new_set_nameidata_call='set_nameidata(nd, old_dfd, fake_filename);'"
+vma_prior_state = "had_task_mmu_vma_pad_start=0"
+vma_prior_probe = "if grep -Fq 'VMA_PAD_START(' ./fs/proc/task_mmu.c; then"
+vma_legacy_guard = 'if [ "$had_task_mmu_vma_pad_start" -eq 0 ]; then'
+vma_legacy_call = "sed -i 's|VMA_PAD_START(vma)|vma->vm_end|g' ./fs/proc/task_mmu.c"
+for required, message in [
+    (nameidata_legacy_signature, "SUSFS recovery must identify the legacy three-argument set_nameidata API"),
+    (nameidata_old_call, "SUSFS recovery must match the incompatible four-argument set_nameidata call"),
+    (nameidata_new_call, "SUSFS recovery must replace the incompatible set_nameidata call with its three-argument form"),
+    (vma_prior_state, "SUSFS recovery must record whether a vendor tree had VMA_PAD_START before patching"),
+    (vma_prior_probe, "SUSFS recovery must probe VMA_PAD_START before applying SUSFS"),
+    (vma_legacy_guard, "SUSFS recovery must use the pre-patch VMA padding state when deciding the fallback"),
+    (vma_legacy_call, "SUSFS recovery must replace unsupported VMA_PAD_START calls for legacy task_mmu trees"),
+]:
+    if required not in susfs_body:
+        raise SystemExit(message)
+if not susfs_patch_idx < susfs_body.find(nameidata_old_call) < susfs_revert_idx:
+    raise SystemExit("set_nameidata compatibility recovery must run after the SUSFS patch attempt and before fake-patch rollback")
+if not susfs_patch_idx < susfs_body.find(vma_legacy_call) < susfs_revert_idx:
+    raise SystemExit("VMA padding compatibility recovery must run after the SUSFS patch attempt and before fake-patch rollback")
 
 ccache_step = re.search(
     r"(?ms)^    - name:\s*Check and Prepare Caches\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
