@@ -715,8 +715,6 @@ jobs:
           build_timestamp: ${{ inputs.build_timestamp }}
           clean: ${{ inputs.clean_build }}
           debug: ${{ inputs.debug }}
-          upload_final_zip: ${{ inputs.make_release }}
-          save_ccache: ${{ inputs.make_release }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📊 Build statistics

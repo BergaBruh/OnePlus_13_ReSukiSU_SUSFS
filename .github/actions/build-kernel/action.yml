@@ -52,11 +52,6 @@ inputs:
     required: false
     type: boolean
     default: 'true'
-  save_ccache:
-    description: 'Save ccache state at the end of the action'
-    required: false
-    type: boolean
-    default: true
   artifact_slug:
     description: 'Optional safe suffix that makes debug artifact names unique for matrix callers'
     required: false
@@ -2804,7 +2799,7 @@ runs:
         fetch-depth: 1
 
     - name: Save ccache cache
-      if: success() && steps.build_kernel_step.conclusion == 'success' && inputs.save_ccache == 'true'
+      if: always() && steps.build_kernel_step.conclusion == 'success'
       uses: ./action-source/.github/actions/cache/save
       with:
         cache_path: ${{ env.CCACHE_DIR }}
