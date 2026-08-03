@@ -813,3 +813,16 @@ if not config_generation_index < enable_index < olddefconfig_index:
 if olddefconfig_index + len(olddefconfig) != assertion_index - len("\n        "):
     raise SystemExit("CONFIG_USER_NS assertion must immediately follow olddefconfig")
 PY
+
+python3 - "$repo_root/.github/workflows/build-kernel-release.yml" <<'PY'
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+build_step = (
+    '          upload_final_zip: ${{ inputs.make_release }}\n'
+    '          save_ccache: ${{ inputs.make_release }}\n'
+)
+if build_step not in text:
+    raise SystemExit("validation mode must suppress final ZIP upload and ccache save when make_release is false")
+PY
