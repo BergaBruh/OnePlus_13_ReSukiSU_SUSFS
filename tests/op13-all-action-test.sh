@@ -244,7 +244,11 @@ fengchi_failure = re.search(
 if not fengchi_failure:
     raise SystemExit("Apply Other Patches must retain the failed Fengchi patch branch")
 fengchi_failure_body = fengchi_failure.group("body")
-reject_exists_idx = fengchi_failure_body.find("if [ ! -f kernel/fork.c.rej ]; then")
+handled_init_idx = fengchi_failure_body.find("handled_fengchi_rejects=0")
+legacy_required_fork_idx = fengchi_failure_body.find("if [ ! -f kernel/fork.c.rej ]; then")
+if legacy_required_fork_idx != -1:
+    raise SystemExit("HMBIRD Fengchi recovery must not require kernel/fork.c.rej when another known reject is recoverable")
+fork_handler_idx = fengchi_failure_body.find("if [ -f kernel/fork.c.rej ]; then")
 reject_hunk_count_idx = fengchi_failure_body.find(
     "reject_hunk_count=$(awk '/^@@ / { count++ } END { print count + 0 }' kernel/fork.c.rej)"
 )
@@ -274,6 +278,54 @@ old_hook_idx = (
     else -1
 )
 handled_reject_idx = fengchi_failure_body.find("rm -f kernel/fork.c.rej")
+handled_fork_idx = (
+    fengchi_failure_body.find("handled_fengchi_rejects=$((handled_fengchi_rejects + 1))", handled_reject_idx)
+    if handled_reject_idx != -1
+    else -1
+)
+cpufreq_handler_idx = fengchi_failure_body.find("if [ -f include/linux/cpufreq.h.rej ]; then")
+cpufreq_hunk_count_idx = fengchi_failure_body.find(
+    "cpufreq_reject_hunk_count=$(awk '/^@@ / { count++ } END { print count + 0 }' include/linux/cpufreq.h.rej)"
+)
+cpufreq_hunk_count_failure = re.search(
+    r"(?ms)if\s+\[\s+\"\$cpufreq_reject_hunk_count\"\s+-ne\s+1\s+\];\s*then\s*$"
+    r"(?P<body>.*?)(?=^\s*fi\s*$)",
+    fengchi_failure_body,
+)
+cpufreq_hunk_count_failure_idx = cpufreq_hunk_count_failure.start() if cpufreq_hunk_count_failure else -1
+cpufreq_reject_decl_count_idx = fengchi_failure_body.find(
+    "cpufreq_reject_decl_count=$(perl -0ne 'BEGIN { $block = \"+ssize_t store_scaling_governor(struct cpufreq_policy *policy,\\n+                                        const char *buf, size_t count);\\n+ssize_t show_scaling_governor(struct cpufreq_policy *policy, char *buf);\"; } $count = () = /\\Q$block\\E/g; print \"$count\\n\";' include/linux/cpufreq.h.rej)"
+)
+cpufreq_added_count_idx = fengchi_failure_body.find(
+    "cpufreq_added_hunk_count=$(awk '/^@@ / { in_hunk=1; next } in_hunk && /^[+]/ { count++ } END { print count + 0 }' include/linux/cpufreq.h.rej)"
+)
+cpufreq_added_failure_idx = fengchi_failure_body.find('[ "$cpufreq_added_hunk_count" -ne 3 ]')
+cpufreq_removed_count_idx = fengchi_failure_body.find(
+    "cpufreq_removed_hunk_count=$(awk '/^@@ / { in_hunk=1; next } in_hunk && /^-/ { count++ } END { print count + 0 }' include/linux/cpufreq.h.rej)"
+)
+cpufreq_removed_failure_idx = fengchi_failure_body.find('[ "$cpufreq_removed_hunk_count" -ne 0 ]')
+cpufreq_target_exists_idx = fengchi_failure_body.find("if [ ! -f include/linux/cpufreq.h ]; then")
+cpufreq_target_decl_count_idx = fengchi_failure_body.find(
+    "cpufreq_target_decl_count=$(perl -0ne 'BEGIN { $block = \"ssize_t store_scaling_governor(struct cpufreq_policy *policy,\\n                                        const char *buf, size_t count);\\nssize_t show_scaling_governor(struct cpufreq_policy *policy, char *buf);\"; } $count = () = /\\Q$block\\E/g; print \"$count\\n\";' include/linux/cpufreq.h)"
+)
+cpufreq_context_idx = fengchi_failure_body.find(
+    "cpufreq_expected_context=$'enum cpufreq_table_sorting {\\n\\tCPUFREQ_TABLE_UNSORTED,\\n\\tCPUFREQ_TABLE_SORTED_ASCENDING,\\n\\tCPUFREQ_TABLE_SORTED_DESCENDING,\\n};\\n\\nssize_t store_scaling_governor(struct cpufreq_policy *policy,\\n                                        const char *buf, size_t count);\\nssize_t show_scaling_governor(struct cpufreq_policy *policy, char *buf);\\n\\nstruct cpufreq_cpuinfo {'"
+)
+cpufreq_context_check_idx = fengchi_failure_body.find(
+    'grep -zqF "$cpufreq_expected_context" include/linux/cpufreq.h'
+)
+cpufreq_cleanup_idx = fengchi_failure_body.find("rm -f include/linux/cpufreq.h.rej")
+handled_cpufreq_idx = (
+    fengchi_failure_body.find("handled_fengchi_rejects=$((handled_fengchi_rejects + 1))", cpufreq_cleanup_idx)
+    if cpufreq_cleanup_idx != -1
+    else -1
+)
+no_known_reject_match = re.search(
+    r"(?ms)if\s+\[\s+\"\$handled_fengchi_rejects\"\s+-eq\s+0\s+\];\s*then\s*$"
+    r"(?P<body>.*?)(?=^\s*fi\s*$)",
+    fengchi_failure_body,
+)
+no_known_reject_idx = no_known_reject_match.start() if no_known_reject_match else -1
 remaining_reject_match = re.search(
     r"(?ms)if\s+\[\s+-n\s+\"\$\(find \. -name '\*\.rej' -print -quit\)\"\s+\];\s*then\s*$"
     r"(?P<body>.*?)(?=^\s*fi\s*$)",
@@ -281,7 +333,8 @@ remaining_reject_match = re.search(
 )
 remaining_reject_idx = remaining_reject_match.start() if remaining_reject_match else -1
 ordered_hmbird_indexes = [
-    reject_exists_idx,
+    handled_init_idx,
+    fork_handler_idx,
     reject_hunk_count_idx,
     reject_hunk_count_failure_idx,
     old_reject_idx,
@@ -292,12 +345,28 @@ ordered_hmbird_indexes = [
     exact_block_idx,
     old_hook_idx,
     handled_reject_idx,
+    handled_fork_idx,
+    cpufreq_handler_idx,
+    cpufreq_hunk_count_idx,
+    cpufreq_hunk_count_failure_idx,
+    cpufreq_reject_decl_count_idx,
+    cpufreq_added_count_idx,
+    cpufreq_added_failure_idx,
+    cpufreq_removed_count_idx,
+    cpufreq_removed_failure_idx,
+    cpufreq_target_exists_idx,
+    cpufreq_target_decl_count_idx,
+    cpufreq_context_idx,
+    cpufreq_context_check_idx,
+    cpufreq_cleanup_idx,
+    handled_cpufreq_idx,
+    no_known_reject_idx,
     remaining_reject_idx,
 ]
 if min(ordered_hmbird_indexes) == -1:
-    raise SystemExit("HMBIRD Fengchi recovery must prove one known reject hunk, reject evidence, exactly one old fork hook, direct guarded replacement, handled reject cleanup, and remaining-reject failure")
+    raise SystemExit("HMBIRD Fengchi recovery must count handled rejects, preserve optional fork recovery, prove exact optional cpufreq already-applied evidence, and keep the final remaining-reject failure")
 if ordered_hmbird_indexes != sorted(ordered_hmbird_indexes) or len(set(ordered_hmbird_indexes)) != len(ordered_hmbird_indexes):
-    raise SystemExit("HMBIRD Fengchi recovery checks must run in strict reject-target, hunk-count, evidence, replace, verify, handled-reject, remaining-reject order")
+    raise SystemExit("HMBIRD Fengchi recovery checks must run in strict handled-count, fork recovery, cpufreq evidence, no-known-reject, remaining-reject order")
 if not reject_hunk_count_failure:
     raise SystemExit("HMBIRD Fengchi recovery must fail closed unless kernel/fork.c.rej has exactly one unified hunk")
 reject_hunk_count_failure_body = reject_hunk_count_failure.group("body")
@@ -308,6 +377,33 @@ for required, message in [
 ]:
     if required not in reject_hunk_count_failure_body:
         raise SystemExit(message)
+if not cpufreq_hunk_count_failure:
+    raise SystemExit("HMBIRD Fengchi cpufreq recovery must fail closed unless include/linux/cpufreq.h.rej has exactly one unified hunk")
+cpufreq_hunk_count_failure_body = cpufreq_hunk_count_failure.group("body")
+for required, message in [
+    ("::error::", "unexpected HMBIRD cpufreq reject hunk count must emit ::error::"),
+    ("find . -name", "unexpected HMBIRD cpufreq reject hunk count must dump reject diagnostics"),
+    ("exit 1", "unexpected HMBIRD cpufreq reject hunk count must exit non-zero"),
+]:
+    if required not in cpufreq_hunk_count_failure_body:
+        raise SystemExit(message)
+if not no_known_reject_match:
+    raise SystemExit("HMBIRD Fengchi recovery must fail when patch exits nonzero but no known reject was handled")
+no_known_reject_body = no_known_reject_match.group("body")
+for required, message in [
+    ("::error::", "missing-known-reject path must emit ::error::"),
+    ("find . -name", "missing-known-reject path must dump reject diagnostics"),
+    ("exit 1", "missing-known-reject path must exit non-zero"),
+]:
+    if required not in no_known_reject_body:
+        raise SystemExit(message)
+cpufreq_region = (
+    fengchi_failure_body[cpufreq_handler_idx:cpufreq_cleanup_idx]
+    if cpufreq_handler_idx != -1 and cpufreq_cleanup_idx != -1
+    else ""
+)
+if re.search(r"\b(?:sed|perl)\s+-i\b.*include/linux/cpufreq\.h(?:\s|$)", cpufreq_region):
+    raise SystemExit("HMBIRD Fengchi cpufreq recovery must not mutate include/linux/cpufreq.h")
 if "sed -i 's/sched_ext_free(tsk);/hmbird_free(tsk);/' kernel/fork.c" in fengchi_failure_body:
     raise SystemExit("HMBIRD Fengchi recovery must not use an unanchored sed replacement for the fork hook")
 if "s/^[[:blank:]]*hmbird_free\\(tsk\\);" in fengchi_failure_body:
