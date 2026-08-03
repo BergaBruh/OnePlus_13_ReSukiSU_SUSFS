@@ -17,6 +17,33 @@ expect_failure() {
 
 [[ -f "$script" ]] || fail "expected baseline harness at $script"
 
+python3 - "$script" <<'PY'
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+config_generation = '"$source_dir/scripts/kconfig/merge_config.sh" -m -r -y'
+enable = '"$source_dir/scripts/config" --file "$out_dir/.config" -e USER_NS'
+olddefconfig = 'make -C "$source_dir" O="$out_dir" ARCH=arm64 LLVM=1 olddefconfig'
+assertion = "grep -qx 'CONFIG_USER_NS=y' \"$out_dir/.config\" || {"
+
+for required, message in [
+    (enable, "baseline build must enable CONFIG_USER_NS before olddefconfig"),
+    (assertion, "baseline build must assert CONFIG_USER_NS=y after olddefconfig"),
+]:
+    if required not in text:
+        raise SystemExit(message)
+
+config_generation_index = text.index(config_generation)
+enable_index = text.index(enable)
+olddefconfig_index = text.index(olddefconfig)
+assertion_index = text.index(assertion)
+if not config_generation_index < enable_index < olddefconfig_index:
+    raise SystemExit("baseline CONFIG_USER_NS must be enabled after fragment merge and before olddefconfig")
+if olddefconfig_index + len(olddefconfig) != assertion_index - len("\n  "):
+    raise SystemExit("baseline CONFIG_USER_NS assertion must immediately follow olddefconfig")
+PY
+
 # shellcheck source=/dev/null
 source "$script"
 

@@ -774,3 +774,42 @@ if not re.search(r'(?m)^          gh release create "\$tag" "\$\{zip_paths\[@\]\
 
 print("PASS: OP13 all-variant action contract")
 PY
+
+python3 - "$build_action" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+build_step = re.search(
+    r"(?ms)^    - name:\s*Build Kernel\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    text,
+)
+if not build_step:
+    raise SystemExit("build action must retain the Build Kernel step")
+
+body = build_step.group("body")
+config_generation = 'make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" gki_defconfig'
+enable = 'scripts/config --file "$OUT/.config" -e USER_NS'
+olddefconfig = (
+    'make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" '
+    'HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig'
+)
+assertion = "grep -qx 'CONFIG_USER_NS=y' \"$OUT/.config\" || {"
+
+for required, message in [
+    (enable, "Build Kernel must enable CONFIG_USER_NS before olddefconfig"),
+    (assertion, "Build Kernel must assert CONFIG_USER_NS=y after olddefconfig"),
+]:
+    if required not in body:
+        raise SystemExit(message)
+
+config_generation_index = body.index(config_generation)
+enable_index = body.index(enable)
+olddefconfig_index = body.index(olddefconfig)
+assertion_index = body.index(assertion)
+if not config_generation_index < enable_index < olddefconfig_index:
+    raise SystemExit("CONFIG_USER_NS must be enabled after gki_defconfig and before olddefconfig")
+if olddefconfig_index + len(olddefconfig) != assertion_index - len("\n        "):
+    raise SystemExit("CONFIG_USER_NS assertion must immediately follow olddefconfig")
+PY

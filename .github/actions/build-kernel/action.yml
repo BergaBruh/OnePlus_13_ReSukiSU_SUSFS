@@ -2355,7 +2355,12 @@ runs:
         esac
         
         
+        scripts/config --file "$OUT/.config" -e USER_NS
         make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig
+        grep -qx 'CONFIG_USER_NS=y' "$OUT/.config" || {
+          echo "::error::olddefconfig did not enable CONFIG_USER_NS=y"
+          exit 1
+        }
         
         KCFLAGS="$KCFLAGS -Wno-error -pipe ${KCFLAGS_EXTRA}"
         KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"

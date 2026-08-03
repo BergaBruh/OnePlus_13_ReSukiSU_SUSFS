@@ -344,8 +344,13 @@ build() {
     "$source_dir/arch/arm64/configs/vendor/sun_perf.config" \
     "$source_dir/arch/arm64/configs/consolidate.fragment" \
     "$source_dir/arch/arm64/configs/vendor/sun_consolidate.config"
+  run_logged "$log_file" "$source_dir/scripts/config" --file "$out_dir/.config" -e USER_NS
   run_logged "$log_file" env HOSTCFLAGS="$hostcflags" \
     make -C "$source_dir" O="$out_dir" ARCH=arm64 LLVM=1 olddefconfig
+  grep -qx 'CONFIG_USER_NS=y' "$out_dir/.config" || {
+    fail "sun build configuration did not enable user namespaces"
+    return
+  }
   grep -qx 'CONFIG_ARM64_4K_PAGES=y' "$out_dir/.config" || {
     fail "sun build configuration did not resolve to 4K pages"
     return
