@@ -1107,6 +1107,10 @@ runs:
         # Fake kernel patch to fix failures
         fake_patched=0
         fake_patched_expand=0
+        had_task_mmu_vma_pad_start=0
+        if grep -Fq 'VMA_PAD_START(' ./fs/proc/task_mmu.c; then
+          had_task_mmu_vma_pad_start=1
+        fi
         if [ "${{ env.ANDROID_VER }}" = "android15" ] && [ "${{ env.KERNEL_VER }}" = "6.6" ]; then
           if ! grep -qxF $'\tunsigned int nr_subpages = __PAGE_SIZE / PAGE_SIZE;' ./fs/proc/task_mmu.c; then
             echo "nr_subpages Line not found. Fake Patching!"
@@ -1193,6 +1197,37 @@ runs:
         if grep -qF '__fold_filemap_fixup_entry(&((struct proc_maps_private *)m->private)->iter, &end);' ./fs/proc/task_mmu.c && ! grep -qF '__fold_filemap_fixup_entry' "$COMMON_KERNEL_FOLDER/include/linux/page_size_compat.h"; then
           echo "::error::SUSFS patch left __fold_filemap_fixup_entry call in fs/proc/task_mmu.c without page_size_compat.h declaration"
           exit 1
+        fi
+
+        # SUSFS targets the newer four-argument API, while some OnePlus 5.10
+        # trees still expose the original three-argument set_nameidata().
+        namei_file="./fs/namei.c"
+        old_set_nameidata_call='set_nameidata(nd, old_dfd, fake_filename, NULL);'
+        new_set_nameidata_call='set_nameidata(nd, old_dfd, fake_filename);'
+        if grep -Eq 'static void set_nameidata\(struct nameidata \*p, int dfd, struct filename \*name\)' "$namei_file"; then
+          nameidata_compat_count=$(grep -Fc "$old_set_nameidata_call" "$namei_file" || true)
+          if [ "$nameidata_compat_count" -gt 0 ]; then
+            sed -i "s|$old_set_nameidata_call|$new_set_nameidata_call|g" "$namei_file"
+            if grep -Fq "$old_set_nameidata_call" "$namei_file"; then
+              echo "::error::Failed to adapt SUSFS set_nameidata() calls"
+              exit 1
+            fi
+            echo "Adjusted $nameidata_compat_count SUSFS set_nameidata() call(s) for the three-argument kernel API"
+          fi
+        fi
+
+        # Keep the original vm_end behavior for vendor trees that did not use
+        # the newer VMA padding API before the SUSFS patch was applied.
+        if [ "$had_task_mmu_vma_pad_start" -eq 0 ]; then
+          vma_pad_compat_count=$(grep -Fc 'VMA_PAD_START(vma)' ./fs/proc/task_mmu.c || true)
+          if [ "$vma_pad_compat_count" -gt 0 ]; then
+            sed -i 's|VMA_PAD_START(vma)|vma->vm_end|g' ./fs/proc/task_mmu.c
+            if grep -Fq 'VMA_PAD_START(vma)' ./fs/proc/task_mmu.c; then
+              echo "::error::Failed to adapt SUSFS VMA padding calls"
+              exit 1
+            fi
+            echo "Adjusted $vma_pad_compat_count SUSFS VMA padding call(s) for the legacy task_mmu API"
+          fi
         fi
         
         # Revert Fake kernel patch
