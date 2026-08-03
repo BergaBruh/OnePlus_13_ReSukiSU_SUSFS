@@ -299,7 +299,13 @@ cpufreq_reject_decl_count_idx = fengchi_failure_body.find(
 cpufreq_added_count_idx = fengchi_failure_body.find(
     "cpufreq_added_hunk_count=$(awk '/^@@ / { in_hunk=1; next } in_hunk && /^[+]/ { count++ } END { print count + 0 }' include/linux/cpufreq.h.rej)"
 )
-cpufreq_added_failure_idx = fengchi_failure_body.find('[ "$cpufreq_added_hunk_count" -ne 3 ]')
+cpufreq_added_failure_idx = fengchi_failure_body.find('[ "$cpufreq_added_hunk_count" -ne 4 ]')
+cpufreq_added_error_idx = fengchi_failure_body.find("exactly four added lines")
+cpufreq_blank_added_count_idx = fengchi_failure_body.find(
+    "cpufreq_blank_added_hunk_count=$(awk '/^@@ / { in_hunk=1; next } in_hunk && /^\\+$/ { count++ } END { print count + 0 }' include/linux/cpufreq.h.rej)"
+)
+cpufreq_blank_added_failure_idx = fengchi_failure_body.find('[ "$cpufreq_blank_added_hunk_count" -ne 1 ]')
+cpufreq_blank_added_error_idx = fengchi_failure_body.find("exactly one blank added line")
 cpufreq_removed_count_idx = fengchi_failure_body.find(
     "cpufreq_removed_hunk_count=$(awk '/^@@ / { in_hunk=1; next } in_hunk && /^-/ { count++ } END { print count + 0 }' include/linux/cpufreq.h.rej)"
 )
@@ -352,6 +358,10 @@ ordered_hmbird_indexes = [
     cpufreq_reject_decl_count_idx,
     cpufreq_added_count_idx,
     cpufreq_added_failure_idx,
+    cpufreq_added_error_idx,
+    cpufreq_blank_added_count_idx,
+    cpufreq_blank_added_failure_idx,
+    cpufreq_blank_added_error_idx,
     cpufreq_removed_count_idx,
     cpufreq_removed_failure_idx,
     cpufreq_target_exists_idx,

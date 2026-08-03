@@ -1393,8 +1393,14 @@ runs:
                 exit 1
               fi
               cpufreq_added_hunk_count=$(awk '/^@@ / { in_hunk=1; next } in_hunk && /^[+]/ { count++ } END { print count + 0 }' include/linux/cpufreq.h.rej)
-              if [ "$cpufreq_added_hunk_count" -ne 3 ]; then
-                echo "::error::hmbird fengchi cpufreq reject expected exactly three added declaration lines, found $cpufreq_added_hunk_count. Dumping all .rej files:"
+              if [ "$cpufreq_added_hunk_count" -ne 4 ]; then
+                echo "::error::hmbird fengchi cpufreq reject expected exactly four added lines, found $cpufreq_added_hunk_count. Dumping all .rej files:"
+                find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
+                exit 1
+              fi
+              cpufreq_blank_added_hunk_count=$(awk '/^@@ / { in_hunk=1; next } in_hunk && /^\+$/ { count++ } END { print count + 0 }' include/linux/cpufreq.h.rej)
+              if [ "$cpufreq_blank_added_hunk_count" -ne 1 ]; then
+                echo "::error::hmbird fengchi cpufreq reject expected exactly one blank added line, found $cpufreq_blank_added_hunk_count. Dumping all .rej files:"
                 find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
                 exit 1
               fi
