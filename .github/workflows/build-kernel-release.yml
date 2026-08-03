@@ -1253,6 +1253,19 @@ jobs:
             fi
           done
 
+      - name: 🧹 Dispatch stale ccache cleanup
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run clean-up.yml \
+            --ref "${{ github.event.repository.default_branch }}" \
+            -f cleanup_type=cache_only \
+            -f device_filter=ALL \
+            -f cache_pattern=ccache_stale \
+            -f force_cleanup=true \
+            -f dry_run=false
+
       - name: 📊 Release summary
         if: success()
         run: |
