@@ -68,6 +68,8 @@ for config_path in sys.argv[2:]:
         raise SystemExit(f'{config_path}: must set exact "module_overlay": false')
     if config.get("module_overlay") is not False:
         raise SystemExit(f"{config_path}: module_overlay must be boolean false")
+    if config_path != "configs/oos16/OP13-6.6.89.json" and config.get("ds") is not True:
+        raise SystemExit(f"{config_path}: active OP13 matrix config must enable Droidspaces")
     manifest = config.get("manifest")
     if not isinstance(manifest, str) or not manifest:
         raise SystemExit(f"{config_path}: missing manifest reference")
@@ -790,26 +792,30 @@ if not build_step:
 
 body = build_step.group("body")
 config_generation = 'make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" gki_defconfig'
-enable = 'scripts/config --file "$OUT/.config" -e USER_NS'
+namespace_config_decl = "required_namespace_configs=(\n            NAMESPACES\n            PID_NS\n            UTS_NS\n            IPC_NS\n            SYSVIPC\n            POSIX_MQUEUE\n            USER_NS\n          )"
+namespace_config_loop = 'scripts/config --file "$OUT/.config" -e "$required_config"'
 olddefconfig = (
     'make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" '
     'HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig'
 )
-assertion = "grep -qx 'CONFIG_USER_NS=y' \"$OUT/.config\" || {"
+assertion = 'grep -qx "CONFIG_${required_config}=y" "$OUT/.config" || {'
 
 for required, message in [
-    (enable, "Build Kernel must enable CONFIG_USER_NS before olddefconfig"),
-    (assertion, "Build Kernel must assert CONFIG_USER_NS=y after olddefconfig"),
+    (namespace_config_decl, "Build Kernel must declare the full Droidspaces namespace config set"),
+    (namespace_config_loop, "Build Kernel must force every required namespace config before olddefconfig"),
+    ('required_namespace_configs=(USER_NS)', "Build Kernel must keep USER_NS as the non-Droidspaces fallback"),
+    (assertion, "Build Kernel must assert every required namespace config after olddefconfig"),
 ]:
     if required not in body:
         raise SystemExit(message)
 
 config_generation_index = body.index(config_generation)
-enable_index = body.index(enable)
+namespace_decl_index = body.index(namespace_config_decl)
+enable_index = body.index(namespace_config_loop)
 olddefconfig_index = body.index(olddefconfig)
 assertion_index = body.index(assertion)
-if not config_generation_index < enable_index < olddefconfig_index:
-    raise SystemExit("CONFIG_USER_NS must be enabled after gki_defconfig and before olddefconfig")
-if olddefconfig_index + len(olddefconfig) != assertion_index - len("\n        "):
-    raise SystemExit("CONFIG_USER_NS assertion must immediately follow olddefconfig")
+if not config_generation_index < namespace_decl_index < enable_index < olddefconfig_index:
+    raise SystemExit("Droidspaces namespace configs must be selected after gki_defconfig and before olddefconfig")
+if olddefconfig_index + len(olddefconfig) != body.rfind("for required_config in", 0, assertion_index) - len("\n        "):
+    raise SystemExit("Droidspaces namespace assertions must immediately follow olddefconfig")
 PY

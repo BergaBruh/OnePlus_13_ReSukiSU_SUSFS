@@ -2090,14 +2090,17 @@ runs:
         fi
         
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
-        CONFIG_SYSVIPC=y
-        CONFIG_DEVTMPFS=y
+        CONFIG_NAMESPACES=y
         CONFIG_PID_NS=y
+        CONFIG_UTS_NS=y
+        CONFIG_IPC_NS=y
+        CONFIG_SYSVIPC=y
         CONFIG_POSIX_MQUEUE=y
+        CONFIG_USER_NS=y
+        CONFIG_DEVTMPFS=y
         CONFIG_NETFILTER_XT_TARGET_REJECT=y
         CONFIG_NETFILTER_XT_TARGET_LOG=y
         CONFIG_NETFILTER_XT_MATCH_RECENT=y
-        CONFIG_USER_NS=y
         EOF
         
         patch -p1 < "$KERNEL_PATCHES_FOLDER/common/droidspaces/0001-Guard-USER_NS-for-non-root-users.patch"
@@ -2354,13 +2357,30 @@ runs:
             ;;
         esac
         
-        
-        scripts/config --file "$OUT/.config" -e USER_NS
+        if [ "$OP_DS" = "true" ]; then
+          required_namespace_configs=(
+            NAMESPACES
+            PID_NS
+            UTS_NS
+            IPC_NS
+            SYSVIPC
+            POSIX_MQUEUE
+            USER_NS
+          )
+        else
+          required_namespace_configs=(USER_NS)
+        fi
+
+        for required_config in "${required_namespace_configs[@]}"; do
+          scripts/config --file "$OUT/.config" -e "$required_config"
+        done
         make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig
-        grep -qx 'CONFIG_USER_NS=y' "$OUT/.config" || {
-          echo "::error::olddefconfig did not enable CONFIG_USER_NS=y"
-          exit 1
-        }
+        for required_config in "${required_namespace_configs[@]}"; do
+          grep -qx "CONFIG_${required_config}=y" "$OUT/.config" || {
+            echo "::error::olddefconfig did not enable CONFIG_${required_config}=y"
+            exit 1
+          }
+        done
         
         KCFLAGS="$KCFLAGS -Wno-error -pipe ${KCFLAGS_EXTRA}"
         KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"
