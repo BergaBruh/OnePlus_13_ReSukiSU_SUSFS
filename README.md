@@ -9,8 +9,6 @@
 
 </div>
 
----
-
 ## ⚠️ Disclaimer
 
 Flashing this kernel will not void your warranty, but there is always a risk of bricking your device. Please make sure to:
@@ -29,8 +27,6 @@ Flashing this kernel will not void your warranty, but there is always a risk of 
 
 </div>
 
----
-
 ## 🔧 Available Kernels
 
 <div align="center">
@@ -40,33 +36,26 @@ Flashing this kernel will not void your warranty, but there is always a risk of 
 | 📱 **OnePlus/Oppo/Realme** | [OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS) | ✅ Active |
 </div>
 
----
-
 ## 🔗 Additional Resources
 
 - 🩹 [Kernel Patches](https://github.com/WildKernels/kernel_patches)
 - ⚡ [Kernel Flasher](https://github.com/fatalcoder524/KernelFlasher)
 
----
-
 ## 📱 Device Compatibility
 
 - Please verify the device compatibility before flashing here: [Compatibility_Info](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS/blob/main/compatibility.md). 
-
----
 
 ## 📱 OnePlusOSS Repositories Tracking
 
 - 📊 **Live Dashboard**: [OnePlus Repos Tracking & Changes](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS/blob/status-page/README.md)
 - ⏱️ **Update Frequency**: Every 2 hours (Automated)
----
 
 ## ✨ Features
 
-- 🔐 **ReSukiSU**: Kernel-based Android Root Solution,forked from sukisu
-- 🥷 **SUSFS**: An addon root hiding kernel patches and userspace module for KernelSU
+- 🔐 **ReSukiSU**: Kernel-based Android Root Solution,forked from SukiSU
+- 🥷 **SUSFS**: An addon root hiding kernel patches and userspace module for KernelSU-based
 - 🛡️ **BBG**: LSM-based Baseband Guard security to protect critical device partitions. abl/efisp can be added to whitelist for efisp exploit devices.
-- 🛠️ **HMBIRD SCX**: Scheduler extensions for SM8750/MT6991 devices
+- 🛠️ **HMBIRD SCX**: Scheduler extensions for SM8750 devices
 - 🖧 **BBRv1**: Improved TCP congestion control
 - 🖧 **BBRv3**: Improved TCP congestion control
 - 🚦 **CAKE and PIE qdisc Support**: Better Net Schedulers
@@ -76,10 +65,8 @@ Flashing this kernel will not void your warranty, but there is always a risk of 
 - 🧱 **IP Set & IPv6 NAT Support**: Advanced firewall capabilities and IPv6 NAT Support
 - ⚡️ **TMPFS XATTR / POSIX ACL**: Extended TMPFS support for meta modules and Mountify
 - </> **Unicode Bypass Fix**: Prevent path traversal and other detections using non-printable Unicode codepoints [Experimental]
-- 🖥️ **Droidspaces Support**: Support Portable Linux containers to run full Linux environments.
+- 🖥️ **Droidspaces Support**: Support Portable Linux containers with namespaces to run full Linux environments.
 - 🔃 **NTSync**: Provide high-performance, low-latency synchronization primitives compatible with the Windows NT kernel API
-
----
 
 ## 📋 Installation Instructions
 
@@ -94,8 +81,6 @@ For GKI installation, please follow the official guide:
 📖 **[KernelSU Installation Guide](https://kernelsu.org/guide/installation.html)**
 
 You can also find Installation instructions in the release notes.
-
----
 
 ## 🌟 Special Thanks
 
@@ -118,8 +103,6 @@ You can also find Installation instructions in the release notes.
 </div>
 
 *If you have contributed and are not listed here, please remind me!* 🙏
-
----
 
 ## 💬 Support
 
