@@ -2195,7 +2195,9 @@ runs:
         echo "Customize Kernel Branding"
         cd "$COMMON_KERNEL_FOLDER"
         mkdir -p out
-        CUSTOM_LOCALVERSION="-${ANDROID_VER}-${OP_UNAME}-${{ github.actor }}"
+        # Keep runtime uname free of root implementation and builder identity markers.
+        # OP_UNAME remains available for artifact/release naming only.
+        CUSTOM_LOCALVERSION="-${ANDROID_VER}"
         echo "CUSTOM_LOCALVERSION=$CUSTOM_LOCALVERSION" >> "$GITHUB_ENV"
 
     - name: Disable GPUEB
