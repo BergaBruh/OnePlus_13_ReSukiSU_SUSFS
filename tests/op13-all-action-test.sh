@@ -907,7 +907,7 @@ for required, message in [
     ('require_config_enabled IP6_NF_NAT "IPv6 NAT"', "Build Kernel must verify IPv6 NAT together with IP set"),
     ('require_config_enabled NTSYNC "NTSync"', "Build Kernel must verify an enabled NTSync flag"),
     ('require_config_enabled HMBIRD_SCHED "HMBIRD"', "Build Kernel must verify an enabled HMBIRD flag"),
-    ('require_config_enabled OPTIMIZE_INLINING "optimization patches"', "Build Kernel must verify enabled optimization configs"),
+    ('require_config_enabled CC_OPTIMIZE_FOR_PERFORMANCE "optimization patches"', "Build Kernel must verify a supported optimization config"),
 ]:
     if required not in body:
         raise SystemExit(message)
@@ -924,9 +924,6 @@ if olddefconfig_index + len(olddefconfig) != body.rfind("for required_config in"
     raise SystemExit("Droidspaces namespace assertions must immediately follow olddefconfig")
 if not assertion_index < feature_helper_index:
     raise SystemExit("feature flags must be verified only after olddefconfig and namespace checks")
-opt_cppflags = 'KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"'
-opt_cppflags_index = body.find(opt_cppflags)
-opt_cppflags_guard_index = body.find('if [ "$OP_OPT" = true ]; then', feature_helper_index)
-if min(opt_cppflags_index, opt_cppflags_guard_index) == -1 or not opt_cppflags_guard_index < opt_cppflags_index:
-    raise SystemExit("CONFIG_OPTIMIZE_INLINING compiler define must be gated by the opt feature flag")
+if "CONFIG_OPTIMIZE_INLINING" in body:
+    raise SystemExit("Build Kernel must not require or synthesize unsupported CONFIG_OPTIMIZE_INLINING")
 PY

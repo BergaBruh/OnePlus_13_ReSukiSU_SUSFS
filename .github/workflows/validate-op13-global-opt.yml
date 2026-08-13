@@ -1,5 +1,7 @@
 name: Validate OP13 Global 6.6.118 optimizations
 
+# Validation attempt 2: use only Kconfig symbols supported by the pinned 6.6.118 tree.
+
 on:
   push:
     branches:
