@@ -75,11 +75,10 @@ for config_path in sys.argv[2:]:
         raise SystemExit(f"{config_path}: approved OP13 config must enable Droidspaces")
     if config.get("ds_userns_mode") != "hardened":
         raise SystemExit(f"{config_path}: release builds must select hardened Droidspaces USER_NS policy explicitly")
-    if config_path == "configs/oos16/OP13-GLOBAL-6.6.118.json":
-        if config.get("opt") is not False:
-            raise SystemExit(f"{config_path}: safe global baseline must keep optional optimization patches disabled")
-    elif config.get("opt") is not True:
-        raise SystemExit(f"{config_path}: performance OP13 variants must keep optimization patches enabled")
+    if config.get("opt") is not True:
+        raise SystemExit(f"{config_path}: approved OP13 configs must enable optimization patches")
+    if config_path == "configs/oos16/OP13-GLOBAL-6.6.118.json" and config.get("custom_patches") is not True:
+        raise SystemExit(f"{config_path}: Global 6.6.118 validation must apply the optimization patch bundle")
     manifest = config.get("manifest")
     if not isinstance(manifest, str) or not manifest:
         raise SystemExit(f"{config_path}: missing manifest reference")
