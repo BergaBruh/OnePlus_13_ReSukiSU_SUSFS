@@ -18,6 +18,7 @@
   "module_overlay": false,
   "opt": true,
   "ds": true,
+  "ds_userns_mode": "hardened",
   "bbg": true,
   "bbr": true,
   "bbr3": true,

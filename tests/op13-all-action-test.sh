@@ -68,8 +68,18 @@ for config_path in sys.argv[2:]:
         raise SystemExit(f'{config_path}: must set exact "module_overlay": false')
     if config.get("module_overlay") is not False:
         raise SystemExit(f"{config_path}: module_overlay must be boolean false")
-    if config_path != "configs/oos16/OP13-6.6.89.json" and config.get("ds") is not True:
-        raise SystemExit(f"{config_path}: active OP13 matrix config must enable Droidspaces")
+    for boolean_field in ("opt", "bbr3", "ds"):
+        if not isinstance(config.get(boolean_field), bool):
+            raise SystemExit(f"{config_path}: {boolean_field} must be a JSON boolean")
+    if config.get("ds") is not True:
+        raise SystemExit(f"{config_path}: approved OP13 config must enable Droidspaces")
+    if config.get("ds_userns_mode") != "hardened":
+        raise SystemExit(f"{config_path}: release builds must select hardened Droidspaces USER_NS policy explicitly")
+    if config_path == "configs/oos16/OP13-GLOBAL-6.6.118.json":
+        if config.get("opt") is not False:
+            raise SystemExit(f"{config_path}: safe global baseline must keep optional optimization patches disabled")
+    elif config.get("opt") is not True:
+        raise SystemExit(f"{config_path}: performance OP13 variants must keep optimization patches enabled")
     manifest = config.get("manifest")
     if not isinstance(manifest, str) or not manifest:
         raise SystemExit(f"{config_path}: missing manifest reference")
@@ -146,6 +156,10 @@ for required, message in [
     ('(.module_overlay | type) == "boolean"', "module_overlay must be validated as a JSON boolean before export"),
     ('::error::op_config_json field \'module_overlay\' must be a JSON boolean true or false.', "invalid module_overlay JSON type must emit an actionable error"),
     ('echo "OP_MODULE_OVERLAY=false" >> "$GITHUB_ENV"', "missing module_overlay must export OP_MODULE_OVERLAY=false"),
+    ('for boolean_field in opt bbr3; do', "opt and bbr3 must be checked as required JSON booleans"),
+    ('has($field) and (.[$field] | type) == "boolean"', "opt and bbr3 must use a boolean JSON type predicate"),
+    ('(.ds_userns_mode | type) == "string"', "Droidspaces USER_NS mode must be type-checked before export"),
+    ('echo "OP_DS_USERNS_MODE=hardened" >> "$GITHUB_ENV"', "missing Droidspaces USER_NS mode must default to hardened"),
 ]:
     if required not in parse_body:
         raise SystemExit(message)
@@ -176,6 +190,13 @@ validate_body = validate_step.group("body")
 for required, message in [
     ('module_overlay="${OP_MODULE_OVERLAY:-false}"', "module_overlay must default independently to false during validation"),
     ("Input 'module_overlay' must be 'true' or 'false'. Got: '$module_overlay'", "module_overlay must have boolean-only validation"),
+    ('bbr3="$OP_BBR3"', "bbr3 must be assigned for validation"),
+    ("Input 'bbr3' contains invalid characters. Allowed: 'true' or 'false'. Got: '$bbr3'", "bbr3 must have boolean-only validation"),
+    ('opt="$OP_OPT"', "opt must be assigned for validation"),
+    ("Input 'opt' contains invalid characters. Allowed: 'true' or 'false'. Got: '$opt'", "opt must have boolean-only validation"),
+    ('ds_userns_mode="${OP_DS_USERNS_MODE:-hardened}"', "Droidspaces USER_NS mode must default safely during validation"),
+    ("Input 'ds_userns_mode' must be 'hardened' or 'compat'. Got: '$ds_userns_mode'", "Droidspaces USER_NS mode must reject unsupported policies"),
+    ('custom_patches=false cannot be combined with opt=true or hmbird=true', "disabled custom patches must not leave opt or hmbird as false-positive flags"),
 ]:
     if required not in validate_body:
         raise SystemExit(message)
@@ -194,22 +215,28 @@ if not susfs_step:
     raise SystemExit("build action must retain the Apply SUSFS Patches step")
 susfs_body = susfs_step.group("body")
 susfs_patch = 'patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/50_add_susfs_in_${{ env.SUSFS_KERNEL_BRANCH }}.patch"'
-compat_decl_check = "grep -qF '__fold_filemap_fixup_entry' \"$COMMON_KERNEL_FOLDER/include/linux/page_size_compat.h\""
-compat_call_delete = "sed -i '/^[[:space:]]*__fold_filemap_fixup_entry(&((struct proc_maps_private \\*)m->private)->iter, &end);[[:space:]]*$/d'"
+fold_decl = "extern void __fold_filemap_fixup_entry(struct vma_iterator *iter, unsigned long *end);"
+fold_decl_check = f"grep -qxF '{fold_decl}' ./include/linux/page_size_compat.h"
+fold_backport = 'patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/backports/fold_fixup_entries.patch"'
 susfs_revert_marker = "# Revert Fake kernel patch"
 susfs_patch_idx = susfs_body.find(susfs_patch)
-compat_decl_idx = susfs_body.find(compat_decl_check)
-compat_delete_match = re.search(
-    re.escape(compat_call_delete) + r"\s+(?:\./)?fs/proc/task_mmu\.c(?:\s|$)",
-    susfs_body,
-)
-compat_delete_idx = compat_delete_match.start() if compat_delete_match else -1
+fold_decl_idx = susfs_body.find(fold_decl_check)
+fold_backport_idx = susfs_body.find(fold_backport)
 susfs_revert_idx = susfs_body.find(susfs_revert_marker)
-if min(susfs_patch_idx, compat_decl_idx, compat_delete_idx, susfs_revert_idx) == -1:
-    raise SystemExit("SUSFS android15-6.6 compatibility recovery must check page_size_compat.h and delete the stale task_mmu.c fixup call from fs/proc/task_mmu.c")
-if not susfs_patch_idx < compat_decl_idx < compat_delete_idx < susfs_revert_idx:
-    raise SystemExit("SUSFS compatibility recovery must run after the SUSFS patch attempt and before fake-patch rollback")
-susfs_compat_region = susfs_body[compat_delete_idx:susfs_revert_idx]
+if min(susfs_patch_idx, fold_decl_idx, fold_backport_idx, susfs_revert_idx) == -1:
+    raise SystemExit("SUSFS android15-6.6 compatibility must backport __fold_filemap_fixup_entry when its declaration is missing")
+if not fold_decl_idx < fold_backport_idx < susfs_patch_idx < susfs_revert_idx:
+    raise SystemExit("the fold-fixup backport must run before the main SUSFS patch and compatibility postconditions")
+fold_backport_region = susfs_body[fold_decl_idx:susfs_patch_idx]
+for required, message in [
+    ("::error::fold_fixup_entries backport failed", "fold-fixup backport failure must emit an actionable error"),
+    ('find . -name "*.rej"', "fold-fixup backport failure must dump reject diagnostics"),
+    ("exit 1", "fold-fixup backport failure must stop the build"),
+]:
+    if required not in fold_backport_region:
+        raise SystemExit(message)
+
+susfs_compat_region = susfs_body[susfs_patch_idx:susfs_revert_idx]
 stale_fixup_call = "__fold_filemap_fixup_entry(&((struct proc_maps_private *)m->private)->iter, &end);"
 postcondition = re.search(
     r"(?ms)if\s+grep -qF "
@@ -222,29 +249,31 @@ if not postcondition:
     raise SystemExit("SUSFS compatibility postcondition must fail only when the exact task_mmu.c call remains and the page_size_compat.h declaration is absent")
 if "::error::" not in postcondition.group("body") or "exit 1" not in postcondition.group("body"):
     raise SystemExit("SUSFS compatibility postcondition must emit ::error:: and exit 1")
+if re.search(r"(?m)^\s*sed\s+-i\s+.*__fold_filemap_fixup_entry.*(?:\./)?fs/proc/task_mmu\.c", susfs_body):
+    raise SystemExit("SUSFS compatibility must preserve the fold-fixup call instead of deleting it")
 
 nameidata_legacy_signature = "static void set_nameidata\\(struct nameidata \\*p, int dfd, struct filename \\*name\\)"
 nameidata_old_call = "old_set_nameidata_call='set_nameidata(nd, old_dfd, fake_filename, NULL);'"
 nameidata_new_call = "new_set_nameidata_call='set_nameidata(nd, old_dfd, fake_filename);'"
-vma_prior_state = "had_task_mmu_vma_pad_start=0"
-vma_prior_probe = "if grep -Fq 'VMA_PAD_START(' ./fs/proc/task_mmu.c; then"
-vma_legacy_guard = 'if [ "$had_task_mmu_vma_pad_start" -eq 0 ]; then'
-vma_legacy_call = "sed -i 's|VMA_PAD_START(vma)|vma->vm_end|g' ./fs/proc/task_mmu.c"
+vma_probe = "if grep -q 'VMA_PAD_START(' ./fs/proc/task_mmu.c && ! grep -qE '#include <linux/pgsize_migration(_inline)?\\.h>|define VMA_PAD_START' ./fs/proc/task_mmu.c; then"
+vma_anchor = "grep -qF '#include \"internal.h\"' ./fs/proc/task_mmu.c"
+vma_fallback = "#define VMA_PAD_START(vma) ((vma)->vm_end)"
 for required, message in [
     (nameidata_legacy_signature, "SUSFS recovery must identify the legacy three-argument set_nameidata API"),
     (nameidata_old_call, "SUSFS recovery must match the incompatible four-argument set_nameidata call"),
     (nameidata_new_call, "SUSFS recovery must replace the incompatible set_nameidata call with its three-argument form"),
-    (vma_prior_state, "SUSFS recovery must record whether a vendor tree had VMA_PAD_START before patching"),
-    (vma_prior_probe, "SUSFS recovery must probe VMA_PAD_START before applying SUSFS"),
-    (vma_legacy_guard, "SUSFS recovery must use the pre-patch VMA padding state when deciding the fallback"),
-    (vma_legacy_call, "SUSFS recovery must replace unsupported VMA_PAD_START calls for legacy task_mmu trees"),
+    (vma_probe, "SUSFS recovery must detect a missing page-size-migration VMA_PAD_START provider"),
+    (vma_anchor, "SUSFS recovery must anchor the compatibility definition after internal.h"),
+    (vma_fallback, "SUSFS recovery must provide the WildKernels VMA_PAD_START fallback"),
 ]:
     if required not in susfs_body:
         raise SystemExit(message)
 if not susfs_patch_idx < susfs_body.find(nameidata_old_call) < susfs_revert_idx:
     raise SystemExit("set_nameidata compatibility recovery must run after the SUSFS patch attempt and before fake-patch rollback")
-if not susfs_patch_idx < susfs_body.find(vma_legacy_call) < susfs_revert_idx:
-    raise SystemExit("VMA padding compatibility recovery must run after the SUSFS patch attempt and before fake-patch rollback")
+if not susfs_patch_idx < susfs_body.find(vma_fallback) < susfs_revert_idx:
+    raise SystemExit("VMA padding fallback must run after the SUSFS patch attempt and before fake-patch rollback")
+if "s|VMA_PAD_START(vma)|vma->vm_end|g" in susfs_body:
+    raise SystemExit("SUSFS compatibility must preserve VMA_PAD_START call sites and provide a fallback definition")
 
 ccache_step = re.search(
     r"(?ms)^    - name:\s*Check and Prepare Caches\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
@@ -271,6 +300,18 @@ for forbidden, message in [
 ]:
     if forbidden in apply_other_body:
         raise SystemExit(message)
+for required, message in [
+    ("if: ${{ env.OP_CUSTOM_PATCHES == 'true' && (env.OP_OPT == 'true' || env.OP_HMBIRD == 'true') }}", "Other Patches must run only for explicitly enabled optimization or HMBIRD work"),
+    ('if [ "$OP_OPT" != true ]; then', "HMBIRD-only builds must stop before applying the optimization bundle"),
+    ('if [ "$OP_BBR" = "false" ] && [ "$OP_BBR3" = "false" ]; then', "force_tcp_nodelay must be gated off for both BBR implementations"),
+    ('Skipping force_tcp_nodelay.patch because BBR or BBRv3 is enabled', "BBR conflict skip must be visible in build logs"),
+]:
+    if required not in apply_other_body:
+        raise SystemExit(message)
+force_tcp_idx = apply_other_body.find('patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/force_tcp_nodelay.patch"')
+force_tcp_guard_idx = apply_other_body.find('if [ "$OP_BBR" = "false" ] && [ "$OP_BBR3" = "false" ]; then')
+if min(force_tcp_idx, force_tcp_guard_idx) == -1 or not force_tcp_guard_idx < force_tcp_idx:
+    raise SystemExit("force_tcp_nodelay must be applied only inside the BBR/BBRv3-disabled guard")
 fengchi_failure = re.search(
     r"(?ms)if ! patch -p1 --fuzz=2 < \"\$FENGCHI_DIR/fengchi_\$\{HMBIRD_MODEL\}_\$\{HMBIRD_OS\}\.patch\"; then\s*$\n(?P<body>.*?)(?=^          fi\s*$)",
     apply_other_body,
@@ -469,6 +510,56 @@ if re.search(r"find \. -name ['\"]\*\.rej['\"] -delete", remaining_reject_region
     raise SystemExit("HMBIRD Fengchi recovery remaining-reject region must not mask failures or delete rejects generically")
 if not remaining_reject_match or "exit 1" not in remaining_reject_match.group("body"):
     raise SystemExit("HMBIRD Fengchi recovery must use find . -name '*.rej' -print -quit and fail if any unhandled reject files remain")
+
+bbr3_step = re.search(
+    r"(?ms)^    - name:\s*Apply BBRv3\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not bbr3_step:
+    raise SystemExit("build action must have a dedicated BBRv3 step")
+bbr3_body = bbr3_step.group("body")
+for required, message in [
+    ("if: ${{ env.OP_BBR3 == 'true' }}", "BBRv3 step must be gated by OP_BBR3"),
+    ('0001-net-tcp-backport-BBRv3-to-${ANDROID_VER}-${KERNEL_VER}.patch', "BBRv3 must select the upstream patch by Android and kernel version"),
+    ('[ ! -f "$bbr3_patch" ]', "BBRv3 must fail when no matching upstream patch exists"),
+    ('CONFIG_TCP_CONG_BBR3=y', "BBRv3 must request its kernel config symbol"),
+    ('patch -p1 --forward < "$bbr3_patch"', "BBRv3 must apply the selected upstream patch"),
+    ('::error::BBRv3 patch failed', "BBRv3 patch failure must be actionable"),
+]:
+    if required not in bbr3_body:
+        raise SystemExit(message)
+
+unicode_step = re.search(
+    r"(?ms)^    - name:\s*Apply Unicode Fix Patch\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not unicode_step or "Check if the decomposition result is empty" not in unicode_step.group("body"):
+    raise SystemExit("Unicode flag must verify that the source-level fix marker is present")
+
+bbg_step = re.search(
+    r"(?ms)^    - name:\s*Add BBG\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not bbg_step or "if ! wget -O-" not in bbg_step.group("body") or "::error::BBG was requested" not in bbg_step.group("body"):
+    raise SystemExit("BBG setup failure must fail closed instead of leaving a false-positive flag")
+
+droidspaces_step = re.search(
+    r"(?ms)^    - name:\s*Add Droidspaces support\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not droidspaces_step:
+    raise SystemExit("build action must retain the Droidspaces step")
+droidspaces_body = droidspaces_step.group("body")
+for required, message in [
+    ('case "$OP_DS_USERNS_MODE" in', "Droidspaces must select an explicit USER_NS policy"),
+    ("hardened)", "Droidspaces must support the hardened release policy"),
+    ("compat)", "Droidspaces must support an opt-in application-compatible policy"),
+    ('0001-Guard-USER_NS-for-non-root-users.patch', "Droidspaces hardened mode must retain the capability guard"),
+    ('if(!ns_capable(current_user_ns(), CAP_SYS_ADMIN))', "both Droidspaces modes must verify the effective USER_NS guard state"),
+    ('::error::Unsupported Droidspaces USER_NS mode', "Droidspaces must fail closed for unknown policies"),
+]:
+    if required not in droidspaces_body:
+        raise SystemExit(message)
 
 module_overlay_step = re.search(
     r"(?ms)^    - name:\s*Apply Module Overlay\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
@@ -799,12 +890,25 @@ olddefconfig = (
     'HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig'
 )
 assertion = 'grep -qx "CONFIG_${required_config}=y" "$OUT/.config" || {'
+feature_helper = "require_config_enabled() {"
 
 for required, message in [
     (namespace_config_decl, "Build Kernel must declare the full Droidspaces namespace config set"),
     (namespace_config_loop, "Build Kernel must force every required namespace config before olddefconfig"),
     ('required_namespace_configs=(USER_NS)', "Build Kernel must keep USER_NS as the non-Droidspaces fallback"),
     (assertion, "Build Kernel must assert every required namespace config after olddefconfig"),
+    (feature_helper, "Build Kernel must define a reusable final-config feature assertion"),
+    ('require_config_enabled KSU "KernelSU"', "Build Kernel must always verify that KernelSU survived olddefconfig"),
+    ('require_config_enabled KSU_SUSFS "SUSFS"', "Build Kernel must verify an enabled SUSFS flag"),
+    ('require_config_enabled BBG "BBG"', "Build Kernel must verify an enabled BBG flag"),
+    ('require_config_enabled TCP_CONG_BBR "BBR"', "Build Kernel must verify an enabled BBR flag"),
+    ('require_config_enabled TCP_CONG_BBR3 "BBRv3"', "Build Kernel must verify an enabled BBRv3 flag"),
+    ('require_config_enabled IP_NF_TARGET_TTL "TTL target"', "Build Kernel must verify an enabled TTL flag"),
+    ('require_config_enabled IP_SET "IP set"', "Build Kernel must verify an enabled IP set flag"),
+    ('require_config_enabled IP6_NF_NAT "IPv6 NAT"', "Build Kernel must verify IPv6 NAT together with IP set"),
+    ('require_config_enabled NTSYNC "NTSync"', "Build Kernel must verify an enabled NTSync flag"),
+    ('require_config_enabled HMBIRD_SCHED "HMBIRD"', "Build Kernel must verify an enabled HMBIRD flag"),
+    ('require_config_enabled OPTIMIZE_INLINING "optimization patches"', "Build Kernel must verify enabled optimization configs"),
 ]:
     if required not in body:
         raise SystemExit(message)
@@ -814,8 +918,16 @@ namespace_decl_index = body.index(namespace_config_decl)
 enable_index = body.index(namespace_config_loop)
 olddefconfig_index = body.index(olddefconfig)
 assertion_index = body.index(assertion)
+feature_helper_index = body.index(feature_helper)
 if not config_generation_index < namespace_decl_index < enable_index < olddefconfig_index:
     raise SystemExit("Droidspaces namespace configs must be selected after gki_defconfig and before olddefconfig")
 if olddefconfig_index + len(olddefconfig) != body.rfind("for required_config in", 0, assertion_index) - len("\n        "):
     raise SystemExit("Droidspaces namespace assertions must immediately follow olddefconfig")
+if not assertion_index < feature_helper_index:
+    raise SystemExit("feature flags must be verified only after olddefconfig and namespace checks")
+opt_cppflags = 'KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"'
+opt_cppflags_index = body.find(opt_cppflags)
+opt_cppflags_guard_index = body.find('if [ "$OP_OPT" = true ]; then', feature_helper_index)
+if min(opt_cppflags_index, opt_cppflags_guard_index) == -1 or not opt_cppflags_guard_index < opt_cppflags_index:
+    raise SystemExit("CONFIG_OPTIMIZE_INLINING compiler define must be gated by the opt feature flag")
 PY

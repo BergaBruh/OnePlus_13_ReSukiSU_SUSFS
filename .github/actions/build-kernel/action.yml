@@ -132,12 +132,29 @@ runs:
             exit 1
           fi
         fi
+        for boolean_field in opt bbr3; do
+          if ! jq -e --arg field "$boolean_field" 'has($field) and (.[$field] | type) == "boolean"' /tmp/config.json >/dev/null; then
+            field_type="$(jq -r --arg field "$boolean_field" 'if has($field) then (.[$field] | type) else "missing" end' /tmp/config.json)"
+            echo "::error::op_config_json field '$boolean_field' must be a JSON boolean true or false. Got JSON type: $field_type"
+            exit 1
+          fi
+        done
+        if jq -e 'has("ds_userns_mode")' /tmp/config.json >/dev/null; then
+          if ! jq -e '(.ds_userns_mode | type) == "string"' /tmp/config.json >/dev/null; then
+            ds_userns_mode_type="$(jq -r '.ds_userns_mode | type' /tmp/config.json)"
+            echo "::error::op_config_json field 'ds_userns_mode' must be a string. Got JSON type: $ds_userns_mode_type"
+            exit 1
+          fi
+        fi
         jq -r 'to_entries[] | "OP_\(.key | ascii_upcase)=\(.value)"' /tmp/config.json >> "$GITHUB_ENV"
         if ! jq -e 'has("custom_patches")' /tmp/config.json >/dev/null; then
           echo "OP_CUSTOM_PATCHES=true" >> "$GITHUB_ENV"
         fi
         if ! jq -e 'has("module_overlay")' /tmp/config.json >/dev/null; then
           echo "OP_MODULE_OVERLAY=false" >> "$GITHUB_ENV"
+        fi
+        if ! jq -e 'has("ds_userns_mode")' /tmp/config.json >/dev/null; then
+          echo "OP_DS_USERNS_MODE=hardened" >> "$GITHUB_ENV"
         fi
         echo "Parsed config:"
         jq '.' /tmp/config.json
@@ -158,6 +175,7 @@ runs:
         susfs="$OP_SUSFS"
         bbg="$OP_BBG"
         bbr="$OP_BBR"
+        bbr3="$OP_BBR3"
         ttl="$OP_TTL"
         ip_set="$OP_IP_SET"
         rust_build="$OP_RUST_BUILD"
@@ -169,7 +187,9 @@ runs:
         zyc_compiler="$OP_ZYC_COMPILER"
         bindgen="$OP_BINDGEN"
         ds="$OP_DS"
+        ds_userns_mode="${OP_DS_USERNS_MODE:-hardened}"
         ntsync="$OP_NTSYNC"
+        opt="$OP_OPT"
         custom_patches="${OP_CUSTOM_PATCHES:-true}"
         module_overlay="${OP_MODULE_OVERLAY:-false}"
         optimize='${{ inputs.optimize_level }}'
@@ -253,6 +273,12 @@ runs:
         elif [[ "$bbr" != "true" && "$bbr" != "false" ]]; then
           errors+=("Input 'bbr' contains invalid characters. Allowed: 'true' or 'false'. Got: '$bbr'")
         fi
+
+        if [[ -z "$bbr3" ]]; then
+          errors+=("Input 'bbr3' cannot be empty")
+        elif [[ "$bbr3" != "true" && "$bbr3" != "false" ]]; then
+          errors+=("Input 'bbr3' contains invalid characters. Allowed: 'true' or 'false'. Got: '$bbr3'")
+        fi
         
         if [[ -z "$ttl" ]]; then
           errors+=("Input 'ttl' cannot be empty")
@@ -303,11 +329,21 @@ runs:
         elif [[ "$ds" != "true" && "$ds" != "false" ]]; then
           errors+=("Input 'ds' contains invalid characters. Allowed: 'true' or 'false'. Got: '$ds'")
         fi
+
+        if [[ "$ds_userns_mode" != "hardened" && "$ds_userns_mode" != "compat" ]]; then
+          errors+=("Input 'ds_userns_mode' must be 'hardened' or 'compat'. Got: '$ds_userns_mode'")
+        fi
         
         if [[ -z "$ntsync" ]]; then
           errors+=("Input 'ntsync' cannot be empty")
         elif [[ "$ntsync" != "true" && "$ntsync" != "false" ]]; then
           errors+=("Input 'ntsync' contains invalid characters. Allowed: 'true' or 'false'. Got: '$ntsync'")
+        fi
+
+        if [[ -z "$opt" ]]; then
+          errors+=("Input 'opt' cannot be empty")
+        elif [[ "$opt" != "true" && "$opt" != "false" ]]; then
+          errors+=("Input 'opt' contains invalid characters. Allowed: 'true' or 'false'. Got: '$opt'")
         fi
 
         if [[ "$custom_patches" != "true" && "$custom_patches" != "false" ]]; then
@@ -316,6 +352,10 @@ runs:
 
         if [[ "$module_overlay" != "true" && "$module_overlay" != "false" ]]; then
           errors+=("Input 'module_overlay' must be 'true' or 'false'. Got: '$module_overlay'")
+        fi
+
+        if [[ "$custom_patches" == "false" && ( "$opt" == "true" || "$hmbird" == "true" ) ]]; then
+          errors+=("custom_patches=false cannot be combined with opt=true or hmbird=true because those patches would not be applied")
         fi
         
         case "$optimize" in
@@ -1102,15 +1142,19 @@ runs:
           if ! grep -qxF '#include <trace/hooks/fs.h>' ./fs/namespace.c; then
             sed -i '/#include <trace\/hooks\/blk.h>/a #include <trace\/hooks\/fs.h>' ./fs/namespace.c
           fi
+          if ! grep -qxF 'extern void __fold_filemap_fixup_entry(struct vma_iterator *iter, unsigned long *end);' ./include/linux/page_size_compat.h; then
+            echo "Backporting __fold_filemap_fixup_entry for Android 15 6.6"
+            if ! patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/backports/fold_fixup_entries.patch"; then
+              echo "::error::fold_fixup_entries backport failed. Dumping all .rej files:"
+              find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
+              exit 1
+            fi
+          fi
         fi
         
         # Fake kernel patch to fix failures
         fake_patched=0
         fake_patched_expand=0
-        had_task_mmu_vma_pad_start=0
-        if grep -Fq 'VMA_PAD_START(' ./fs/proc/task_mmu.c; then
-          had_task_mmu_vma_pad_start=1
-        fi
         if [ "${{ env.ANDROID_VER }}" = "android15" ] && [ "${{ env.KERNEL_VER }}" = "6.6" ]; then
           if ! grep -qxF $'\tunsigned int nr_subpages = __PAGE_SIZE / PAGE_SIZE;' ./fs/proc/task_mmu.c; then
             echo "nr_subpages Line not found. Fake Patching!"
@@ -1191,10 +1235,6 @@ runs:
         fi
 
         if grep -qF '__fold_filemap_fixup_entry(&((struct proc_maps_private *)m->private)->iter, &end);' ./fs/proc/task_mmu.c && ! grep -qF '__fold_filemap_fixup_entry' "$COMMON_KERNEL_FOLDER/include/linux/page_size_compat.h"; then
-          echo "Removing unsupported SUSFS page_size_compat fixup call from fs/proc/task_mmu.c"
-          sed -i '/^[[:space:]]*__fold_filemap_fixup_entry(&((struct proc_maps_private \*)m->private)->iter, &end);[[:space:]]*$/d' ./fs/proc/task_mmu.c
-        fi
-        if grep -qF '__fold_filemap_fixup_entry(&((struct proc_maps_private *)m->private)->iter, &end);' ./fs/proc/task_mmu.c && ! grep -qF '__fold_filemap_fixup_entry' "$COMMON_KERNEL_FOLDER/include/linux/page_size_compat.h"; then
           echo "::error::SUSFS patch left __fold_filemap_fixup_entry call in fs/proc/task_mmu.c without page_size_compat.h declaration"
           exit 1
         fi
@@ -1216,18 +1256,20 @@ runs:
           fi
         fi
 
-        # Keep the original vm_end behavior for vendor trees that did not use
-        # the newer VMA padding API before the SUSFS patch was applied.
-        if [ "$had_task_mmu_vma_pad_start" -eq 0 ]; then
-          vma_pad_compat_count=$(grep -Fc 'VMA_PAD_START(vma)' ./fs/proc/task_mmu.c || true)
-          if [ "$vma_pad_compat_count" -gt 0 ]; then
-            sed -i 's|VMA_PAD_START(vma)|vma->vm_end|g' ./fs/proc/task_mmu.c
-            if grep -Fq 'VMA_PAD_START(vma)' ./fs/proc/task_mmu.c; then
-              echo "::error::Failed to adapt SUSFS VMA padding calls"
-              exit 1
-            fi
-            echo "Adjusted $vma_pad_compat_count SUSFS VMA padding call(s) for the legacy task_mmu API"
+        # Older GKI baselines predate Google's page-size-migration macro used
+        # by current SUSFS OPEN_REDIRECT code. Keep the call sites intact and
+        # provide the same no-padding fallback as newer WildKernels builds.
+        if grep -q 'VMA_PAD_START(' ./fs/proc/task_mmu.c && ! grep -qE '#include <linux/pgsize_migration(_inline)?\.h>|define VMA_PAD_START' ./fs/proc/task_mmu.c; then
+          if ! grep -qF '#include "internal.h"' ./fs/proc/task_mmu.c; then
+            echo "::error::Cannot place the VMA_PAD_START compatibility definition: fs/proc/task_mmu.c has no internal.h include"
+            exit 1
           fi
+          sed -i '\|#include "internal.h"|a\\n#undef VMA_PAD_START\n#ifndef VMA_PAD_START\n#define VMA_PAD_START(vma) ((vma)->vm_end)\n#endif' ./fs/proc/task_mmu.c
+          if ! grep -qxF '#define VMA_PAD_START(vma) ((vma)->vm_end)' ./fs/proc/task_mmu.c; then
+            echo "::error::Failed to add the VMA_PAD_START compatibility definition"
+            exit 1
+          fi
+          echo "Added VMA_PAD_START fallback definition to fs/proc/task_mmu.c"
         fi
         
         # Revert Fake kernel patch
@@ -1304,7 +1346,8 @@ runs:
         cd "$KERNEL_PLATFORM_FOLDER"
         echo "Adding BBG..."
         if ! wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash -s main; then
-          echo "::warning::BBG setup script failed, continuing anyway"
+          echo "::error::BBG was requested, but its setup script failed"
+          exit 1
         fi
         echo "CONFIG_BBG=y" >> common/arch/arm64/configs/gki_defconfig
         sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' common/security/Kconfig
@@ -1338,22 +1381,24 @@ runs:
 
     - name: Apply Other Patches
       shell: bash
-      if: ${{ env.OP_CUSTOM_PATCHES == 'true' }}
+      if: ${{ env.OP_CUSTOM_PATCHES == 'true' && (env.OP_OPT == 'true' || env.OP_HMBIRD == 'true') }}
       run: |
         set -euo pipefail
         echo "::group::Apply Other patches"
         cd "$COMMON_KERNEL_FOLDER"
         KERNEL_VERSION="${{ env.KERNEL_VER }}"
         MIN_VERSION="5.16"
-        if [ "$(printf '%s\n' "$KERNEL_VERSION" "$MIN_VERSION" | sort -V | head -n1)" = "$KERNEL_VERSION" ]; then
-          echo "Patching ptrace!"
-          if ! patch -p1 --fuzz=2 < "$KERNEL_PATCHES_FOLDER/gki_ptrace.patch"; then
-            echo "::error::gki_ptrace patch failed. Dumping all .rej files:"
-            find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
-            exit 1
+        if [ "$OP_OPT" = true ]; then
+          if [ "$(printf '%s\n' "$KERNEL_VERSION" "$MIN_VERSION" | sort -V | head -n1)" = "$KERNEL_VERSION" ]; then
+            echo "Patching ptrace!"
+            if ! patch -p1 --fuzz=2 < "$KERNEL_PATCHES_FOLDER/gki_ptrace.patch"; then
+              echo "::error::gki_ptrace patch failed. Dumping all .rej files:"
+              find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
+              exit 1
+            fi
+          else
+            echo "Kernel >= $MIN_VERSION, skipping ptrace patch"
           fi
-        else
-          echo "Kernel >= $MIN_VERSION, skipping ptrace patch"
         fi
         if [ "$OP_HMBIRD" = true ]; then
           echo "Patching hmbird!"
@@ -1493,6 +1538,12 @@ runs:
           echo "Hmbird not enabled, skipping fengchi patch"
         fi
 
+        if [ "$OP_OPT" != true ]; then
+          echo "Optimization patches are disabled; HMBIRD processing is complete"
+          echo "::endgroup::"
+          exit 0
+        fi
+
         echo "Patching optimized_mem_operations.patch"
         if ! patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/optimized_mem_operations.patch"; then
           echo "::error::optimized_mem_operations patch failed. Dumping all .rej files:"
@@ -1548,11 +1599,15 @@ runs:
           find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
           exit 1
         fi
-        echo "Patching force_tcp_nodelay.patch"
-        if ! patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/force_tcp_nodelay.patch"; then
-          echo "::error::force_tcp_nodelay patch failed. Dumping all .rej files:"
-          find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
-          exit 1
+        if [ "$OP_BBR" = "false" ] && [ "$OP_BBR3" = "false" ]; then
+          echo "Patching force_tcp_nodelay.patch"
+          if ! patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/force_tcp_nodelay.patch"; then
+            echo "::error::force_tcp_nodelay patch failed. Dumping all .rej files:"
+            find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
+            exit 1
+          fi
+        else
+          echo "Skipping force_tcp_nodelay.patch because BBR or BBRv3 is enabled"
         fi
         echo "Patching reduce_gc_thread_sleep_time.patch"
         if ! patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/reduce_gc_thread_sleep_time.patch"; then
@@ -1887,6 +1942,12 @@ runs:
               exit 1
             fi
         fi
+        if ! grep -qF 'Check if the decomposition result is empty' fs/unicode/utf8-norm.c; then
+          echo "::error::Unicode fix flag is enabled, but the patched source marker is missing"
+          exit 1
+        fi
+        echo "✅ Unicode fix applied"
+        echo "::endgroup::"
 
     - name: Add Tmpfs Support
       shell: bash
@@ -1912,6 +1973,30 @@ runs:
         CONFIG_NET_SCH_FQ=y
         CONFIG_NET_SCH_FQ_CODEL=y
         EOF
+
+    - name: Apply BBRv3
+      if: ${{ env.OP_BBR3 == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Apply BBRv3"
+        cd "$COMMON_KERNEL_FOLDER"
+        bbr3_patch="$KERNEL_PATCHES_FOLDER/common/bbrv3/0001-net-tcp-backport-BBRv3-to-${ANDROID_VER}-${KERNEL_VER}.patch"
+        if [ ! -f "$bbr3_patch" ]; then
+          echo "::error::BBRv3 was requested, but no patch exists for ${ANDROID_VER}-${KERNEL_VER}: $bbr3_patch"
+          exit 1
+        fi
+        cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
+        CONFIG_TCP_CONG_ADVANCED=y
+        CONFIG_TCP_CONG_BBR3=y
+        EOF
+        if ! patch -p1 --forward < "$bbr3_patch"; then
+          echo "::error::BBRv3 patch failed. Dumping all .rej files:"
+          find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
+          exit 1
+        fi
+        echo "✅ BBRv3 patch applied"
+        echo "::endgroup::"
 
     - name: Add TTL Target Support
       if: ${{ env.OP_TTL == 'true' }}
@@ -2103,7 +2188,31 @@ runs:
         CONFIG_NETFILTER_XT_MATCH_RECENT=y
         EOF
         
-        patch -p1 < "$KERNEL_PATCHES_FOLDER/common/droidspaces/0001-Guard-USER_NS-for-non-root-users.patch"
+        case "$OP_DS_USERNS_MODE" in
+          hardened)
+            echo "Applying hardened USER_NS policy for Droidspaces"
+            if ! patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/droidspaces/0001-Guard-USER_NS-for-non-root-users.patch"; then
+              echo "::error::Droidspaces USER_NS hardening patch failed. Dumping all .rej files:"
+              find . -name "*.rej" -exec echo "=== {} ===" \; -exec cat {} \;
+              exit 1
+            fi
+            if ! grep -qF 'if(!ns_capable(current_user_ns(), CAP_SYS_ADMIN))' kernel/user_namespace.c; then
+              echo "::error::Droidspaces hardened mode did not install the USER_NS capability guard"
+              exit 1
+            fi
+            ;;
+          compat)
+            echo "Using Droidspaces compatibility mode: unprivileged USER_NS remains available"
+            if grep -qF 'if(!ns_capable(current_user_ns(), CAP_SYS_ADMIN))' kernel/user_namespace.c; then
+              echo "::error::Droidspaces compat mode unexpectedly contains the hardened USER_NS guard"
+              exit 1
+            fi
+            ;;
+          *)
+            echo "::error::Unsupported Droidspaces USER_NS mode: $OP_DS_USERNS_MODE"
+            exit 1
+            ;;
+        esac
         
         if [ "${{ env.OP_RUST_BUILD }}" = "true" ]; then
           echo "Add IPC NS missing symbols for rust binder"
@@ -2120,7 +2229,7 @@ runs:
 
     - name: Add Build based configs
       shell: bash
-      if: ${{ env.OP_CUSTOM_PATCHES == 'true' }}
+      if: ${{ env.OP_CUSTOM_PATCHES == 'true' && env.OP_OPT == 'true' }}
       run: |
         set -euo pipefail
         echo "Add Build based configs"
@@ -2383,9 +2492,51 @@ runs:
             exit 1
           }
         done
+
+        require_config_enabled() {
+          local symbol="$1"
+          local feature="$2"
+          if ! grep -qx "CONFIG_${symbol}=y" "$OUT/.config"; then
+            echo "::error::${feature} is enabled in the build config, but olddefconfig did not produce CONFIG_${symbol}=y"
+            exit 1
+          fi
+        }
+
+        require_config_enabled KSU "KernelSU"
+        if [ "$OP_SUSFS" = true ]; then
+          require_config_enabled KSU_SUSFS "SUSFS"
+          require_config_enabled KSU_SUSFS_SPOOF_UNAME "SUSFS uname spoofing"
+        fi
+        if [ "$OP_BBG" = true ]; then
+          require_config_enabled BBG "BBG"
+        fi
+        if [ "$OP_BBR" = true ]; then
+          require_config_enabled TCP_CONG_BBR "BBR"
+        fi
+        if [ "$OP_BBR3" = true ]; then
+          require_config_enabled TCP_CONG_BBR3 "BBRv3"
+        fi
+        if [ "$OP_TTL" = true ]; then
+          require_config_enabled IP_NF_TARGET_TTL "TTL target"
+        fi
+        if [ "$OP_IP_SET" = true ]; then
+          require_config_enabled IP_SET "IP set"
+          require_config_enabled IP6_NF_NAT "IPv6 NAT"
+        fi
+        if [ "$OP_NTSYNC" = true ]; then
+          require_config_enabled NTSYNC "NTSync"
+        fi
+        if [ "$OP_HMBIRD" = true ]; then
+          require_config_enabled HMBIRD_SCHED "HMBIRD"
+        fi
+        if [ "$OP_OPT" = true ]; then
+          require_config_enabled OPTIMIZE_INLINING "optimization patches"
+        fi
         
         KCFLAGS="$KCFLAGS -Wno-error -pipe ${KCFLAGS_EXTRA}"
-        KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"
+        if [ "$OP_OPT" = true ]; then
+          KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"
+        fi
         
         echo "============================================"
         echo "🔧 Build Configuration"
@@ -2689,6 +2840,7 @@ runs:
           echo ""
           echo "=== OnePlus Features ==="
           echo "BBR: ${{ env.OP_BBR }}"
+          echo "BBRv3: ${{ env.OP_BBR3 }}"
           echo "BBG: ${{ env.OP_BBG }}"
           echo "HMBIRD SCX: ${{ env.OP_HMBIRD }}"
           echo "TTL: ${{ env.OP_TTL }}"
@@ -2696,6 +2848,8 @@ runs:
           echo "Unicode Fix: ${{ env.OP_UNICODE }}"
           echo "NTSync: ${{ env.OP_NTSYNC }}"
           echo "Droidspaces: ${{ env.OP_DS }}"
+          echo "Droidspaces USER_NS mode: ${{ env.OP_DS_USERNS_MODE }}"
+          echo "Optimization patches: ${{ env.OP_OPT }}"
           echo ""
           echo "Image SHA256: ${{ steps.collect_stats.outputs.image_sha256 }}"
           echo "AnyKernel3 ZIP SHA256: ${{ steps.create_zip.outputs.zip_sha256 }}"
@@ -2755,6 +2909,7 @@ runs:
           echo "| Feature | Status |"
           echo "|---------|--------|"
           echo "| **BBR** | ${{ env.OP_BBR }} |"
+          echo "| **BBRv3** | ${{ env.OP_BBR3 }} |"
           echo "| **BBG** | ${{ env.OP_BBG }} |"
           echo "| **HMBIRD SCX** | ${{ env.OP_HMBIRD }} |"
           echo "| **TTL** | ${{ env.OP_TTL }} |"
@@ -2762,6 +2917,8 @@ runs:
           echo "| **Unicode Fix** | ${{ env.OP_UNICODE }} |"
           echo "| **NTSync** | ${{ env.OP_NTSYNC }} |"
           echo "| **Droidspaces** | ${{ env.OP_DS }} |"
+          echo "| **Droidspaces USER_NS mode** | ${{ env.OP_DS_USERNS_MODE }} |"
+          echo "| **Optimization patches** | ${{ env.OP_OPT }} |"
           
           echo ""
           echo "### 📊 Build Metrics"
