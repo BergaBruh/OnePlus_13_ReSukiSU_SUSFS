@@ -1,0 +1,73 @@
+name: PR CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Static contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            jq python3-yaml
+
+      - name: Validate shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' script; do
+            bash -n "$script"
+          done < <(find tests -type f -name '*.sh' -print0 | sort -z)
+
+      - name: Validate GitHub Actions YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          workflow_files = sorted(Path(".github").rglob("*.y*ml"))
+          if not workflow_files:
+              raise SystemExit("no GitHub Actions YAML files found")
+          for path in workflow_files:
+              with path.open(encoding="utf-8") as handle:
+                  yaml.safe_load(handle)
+              print(f"PASS: {path}")
+          PY
+
+      - name: Run repository contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/op13-all-action-test.sh
+          bash tests/op13-baseline-build-test.sh
+          bash tests/release-workflow-contract-test.sh
+
+      - name: Check pull request whitespace
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check \
+            "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
