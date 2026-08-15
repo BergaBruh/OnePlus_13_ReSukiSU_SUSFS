@@ -287,7 +287,7 @@ jobs:
             ${{ github.workspace }}/release-metadata-${{ matrix.slug }}.json
           if-no-files-found: error
           compression-level: 0
-          retention-days: 90
+          retention-days: 1
 
   publish:
     name: Publish all supported OP13 variants

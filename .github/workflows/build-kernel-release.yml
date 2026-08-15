@@ -715,6 +715,7 @@ jobs:
           build_timestamp: ${{ inputs.build_timestamp }}
           clean: ${{ inputs.clean_build }}
           debug: ${{ inputs.debug }}
+          artifact_retention_days: ${{ inputs.make_release && 1 || 90 }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📊 Build statistics
@@ -872,7 +873,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 🏷️ Generate and Create New Tag
+      - name: 🏷️ Generate release tag name
         run: |
           # Only search for tags starting with this SUSFS version
           LATEST_MATCHING_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags \
@@ -890,26 +891,20 @@ jobs:
           
           echo "New tag: $NEW_TAG"
           echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
-          git tag $NEW_TAG
-          git push origin $NEW_TAG
 
-      - name: 📥 Download Artifacts
+      - name: 📥 Download build matrix
         uses: actions/download-artifact@v8
         with:
+          name: build-matrix
+          path: ./downloaded-artifacts
+
+      - name: 📥 Download release ZIPs
+        uses: actions/download-artifact@v8
+        with:
+          pattern: AK3_*
           path: ./downloaded-artifacts
           merge-multiple: true
           skip-decompress: true
-
-      - name: 🧹 Exclude ccache binary from release staging
-        run: |
-          # merge-multiple pulls every run artifact (including the shared
-          # ccache-binary) into ./downloaded-artifacts. The ccache binary is a
-          # build-time helper and must never become a release asset, so drop it
-          # before notes generation / asset upload. The ccache download-once
-          # mechanism (prepare_ccache job + ccache-binary artifact) is untouched.
-          find ./downloaded-artifacts -maxdepth 2 -type f -name ccache -delete
-          rm -rf ./downloaded-artifacts/ccache-binary
-          echo "✅ ccache binary excluded from release staging"
 
       - name: 📝 Generate Device List and Final Release Notes
         id: generate-notes
@@ -1241,6 +1236,7 @@ jobs:
         run: |
           gh release create "${{ env.NEW_TAG }}" \
             --repo "${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}" \
+            --target "$GITHUB_SHA" \
             --title "${{ env.RELEASE_NAME }}" \
             --notes-file release_notes.md
 
