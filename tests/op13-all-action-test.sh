@@ -284,6 +284,33 @@ ccache_body = ccache_step.group("body")
 if 'ccache --set-config=extra_files_to_hash=""' not in ccache_body:
     raise SystemExit("ccache setup must reset extra_files_to_hash for every run before overlay can override it")
 
+ccache_restore = re.search(
+    r"(?ms)^    - name:\s*Restore ccache cache\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+ccache_save = re.search(
+    r"(?ms)^    - name:\s*Save ccache cache\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+ccache_prune = re.search(
+    r"(?ms)^    - name:\s*Prune ccache before saving\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    action_text,
+)
+if not all((ccache_restore, ccache_save, ccache_prune)):
+    raise SystemExit("ccache must retain restore, prune, and save steps")
+if "uses: actions/cache/restore@v4" not in ccache_restore.group("body"):
+    raise SystemExit("ccache restore must use GitHub Actions cache")
+if "uses: actions/cache/save@v4" not in ccache_save.group("body"):
+    raise SystemExit("ccache save must use GitHub Actions cache")
+if "continue-on-error: true" not in ccache_save.group("body"):
+    raise SystemExit("ccache upload failure must not fail a completed kernel build")
+if "ccache --cleanup" not in ccache_prune.group("body"):
+    raise SystemExit("ccache must be pruned to its configured size before saving")
+if 'cache_bucket: "ccache-cache"' in ccache_restore.group("body") or 'cache_bucket: "ccache-cache"' in ccache_save.group("body"):
+    raise SystemExit("ccache must not use the legacy Release cache bucket")
+if "CCACHE_MAXSIZE: 5G" not in workflow_text:
+    raise SystemExit("OP13 workflow must cap ccache at 5G")
+
 apply_other_step = re.search(
     r"(?ms)^    - name:\s*Apply Other Patches\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
     action_text,

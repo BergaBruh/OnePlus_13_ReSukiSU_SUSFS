@@ -758,17 +758,15 @@ runs:
 
     - name: Restore ccache cache
       id: restore-ccache-cache
-      uses: ./action-source/.github/actions/cache/restore
+      uses: actions/cache/restore@v4
       continue-on-error: true
       if: ${{ inputs.clean == false || inputs.clean == 'false' }}
       with:
-        cache_path: ${{ env.CCACHE_DIR }}
-        cache_key: ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
-        cache_bucket: "ccache-cache"
-        debug: ${{ inputs.debug }}
-        restore_keys: |
-          ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-
-          ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-
+        path: ${{ env.CCACHE_DIR }}
+        key: ccache-v4-${{ inputs.ksu_type }}-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          ccache-v4-${{ inputs.ksu_type }}-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}-
+          ccache-v4-${{ inputs.ksu_type }}-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-
 
     - name: Restore LTO LD cache
       id: restore-lto-ld-cache
@@ -2989,21 +2987,18 @@ runs:
         compression-level: 0
         retention-days: 90
 
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v6
+    - name: Prune ccache before saving
       if: always() && steps.build_kernel_step.conclusion == 'success'
-      with:
-        path: main-source
-        fetch-depth: 1
+      shell: bash
+      run: |
+        set -euo pipefail
+        ccache --cleanup
+        ccache --show-stats
 
     - name: Save ccache cache
       if: always() && steps.build_kernel_step.conclusion == 'success'
-      uses: ./action-source/.github/actions/cache/save
+      uses: actions/cache/save@v4
+      continue-on-error: true
       with:
-        cache_path: ${{ env.CCACHE_DIR }}
-        cache_key: ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
-        cache_bucket: "ccache-cache"
-        debug: ${{ inputs.debug }}
-        github_token: ${{ inputs.github_token }}
-        working_dir: "./main-source"
-        compression_level: 6
+        path: ${{ env.CCACHE_DIR }}
+        key: ccache-v4-${{ inputs.ksu_type }}-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}-${{ github.run_id }}-${{ github.run_attempt }}
