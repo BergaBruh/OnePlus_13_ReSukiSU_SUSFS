@@ -1060,14 +1060,8 @@ runs:
         
         RESUKISU_REF="${{ inputs.ksu_branch_or_hash }}"
         if [ -z "$RESUKISU_REF" ]; then
-          RESUKISU_REF="$(
-            curl --fail --location --proto '=https' -LSs \
-              -H "Authorization: Bearer ${{ inputs.github_token }}" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/ReSukiSU/ReSukiSU/releases?per_page=100" | \
-              jq -er '[.[] | select(.prerelease == true and .draft == false)] | first | .tag_name'
-          )"
-          echo "Using latest ReSukiSU pre-release: $RESUKISU_REF"
+          RESUKISU_REF="main"
+          echo "Using latest ReSukiSU CI (main): $RESUKISU_REF"
         else
           echo "Using requested ReSukiSU ref: $RESUKISU_REF"
         fi
