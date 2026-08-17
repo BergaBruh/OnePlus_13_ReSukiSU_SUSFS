@@ -44,12 +44,16 @@ runs:
         import os, shutil
         import time
         import glob
+        from pathlib import PurePosixPath
         from concurrent.futures import ThreadPoolExecutor
         import requests
         
         MAX_WORKERS = (os.cpu_count() or 2) * 4
         NPROC = int(subprocess.check_output("nproc", shell=True).strip())
         TARGET_REPO = "${{ github.repository }}"
+        ACTION_SOURCE = os.path.abspath(os.path.join(
+            os.environ.get("GITHUB_ACTION_PATH", ""), "..", "..", ".."
+        ))
         TOOLCHAIN_MAP = {
             "clang/host/linux-x86": "clang",
             "prebuilts/rust": "rust",
@@ -74,6 +78,63 @@ runs:
         )
         
         print("::group::Download Manifest Archives")
+
+        def stage_local_project_files(path, rev, children):
+            """Stage manifest copy/link sources from the already checked-out action repo.
+
+            The build action is itself checked out in ``action-source``.  Some
+            manifests use that repository only to copy a small packaging file;
+            downloading its complete archive in every matrix job is both
+            redundant and prone to GitHub archive throttling.  Read the exact
+            pinned blob from the local checkout instead, preserving the
+            manifest's revision semantics.
+            """
+            if not os.path.isdir(os.path.join(ACTION_SOURCE, ".git")):
+                return False
+
+            staged = []
+            try:
+                for child in children:
+                    if child.tag not in ["linkfile", "copyfile"]:
+                        return False
+
+                    src_rel = child.get("src")
+                    dest_rel = child.get("dest")
+                    if not src_rel or not dest_rel:
+                        return False
+
+                    src_path = PurePosixPath(src_rel)
+                    if src_path.is_absolute() or ".." in src_path.parts:
+                        return False
+
+                    blob = subprocess.run(
+                        ["git", "-C", ACTION_SOURCE, "show", f"{rev}:{src_rel}"],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    ).stdout
+                    tree_entry = subprocess.check_output(
+                        ["git", "-C", ACTION_SOURCE, "ls-tree", "-r", rev, "--", src_rel],
+                        text=True,
+                        stderr=subprocess.STDOUT,
+                    ).strip()
+                    if not tree_entry:
+                        return False
+
+                    mode = int(tree_entry.split(maxsplit=1)[0], 8) & 0o777
+                    local_dest = os.path.join(top_dir, path, *src_path.parts)
+                    os.makedirs(os.path.dirname(local_dest), exist_ok=True)
+                    with open(local_dest, "wb") as output:
+                        output.write(blob)
+                    os.chmod(local_dest, mode)
+                    staged.append(src_rel)
+            except (OSError, subprocess.CalledProcessError, ValueError) as error:
+                if DEBUG:
+                    print(f"  [LOCAL] unable to stage pinned files: {error}")
+                return False
+
+            print(f"  [LOCAL] staged {len(staged)} pinned file(s) from {TARGET_REPO}@{rev[:12]}")
+            return True
         
         def sync_project(task):
             name, path, url, strip, rev = task
@@ -199,6 +260,15 @@ runs:
             base_url = remotes.get(remote_name)
             
             if not base_url: continue
+
+            if base_url.rstrip("/").startswith("https://github.com/"):
+                project_repo = f"{base_url.rstrip('/').removeprefix('https://github.com/')}/{name}"
+                children = list(project)
+                if project_repo.lower() == TARGET_REPO.lower() and stage_local_project_files(path, rev, children):
+                    for child in children:
+                        if child.tag in ['linkfile', 'copyfile']:
+                            post_process_data.append((path, child))
+                    continue
             
             if "github.com" in base_url:
                 url = f"{base_url}/{name}/archive/{rev}.tar.gz"
