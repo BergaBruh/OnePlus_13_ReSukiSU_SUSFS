@@ -27,7 +27,7 @@
     "resukisu": {
       "repository": "ReSukiSU/ReSukiSU",
       "ref": "main",
-      "sha": "88dbc78682a3364d27ad34551943e18615abf868"
+      "sha": "19edfa86beab6760d41ad9420c7bf1b5f90b2bf3"
     },
     "susfs": {
       "repository": "https://gitlab.com/simonpunk/susfs4ksu",
