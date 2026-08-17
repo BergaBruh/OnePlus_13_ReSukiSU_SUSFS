@@ -1059,12 +1059,21 @@ runs:
         echo "Adding ReSukiSU..."
         
         RESUKISU_REF="${{ inputs.ksu_branch_or_hash }}"
-        RESUKISU_SETUP_REF="${RESUKISU_REF:-main}"
         if [ -z "$RESUKISU_REF" ]; then
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/$RESUKISU_SETUP_REF/kernel/setup.sh" | bash -
+          RESUKISU_REF="$(
+            curl --fail --location --proto '=https' -LSs \
+              -H "Authorization: Bearer ${{ inputs.github_token }}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/ReSukiSU/ReSukiSU/releases?per_page=100" | \
+              jq -er '[.[] | select(.prerelease == true and .draft == false)] | first | .tag_name'
+          )"
+          echo "Using latest ReSukiSU pre-release: $RESUKISU_REF"
         else
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/$RESUKISU_SETUP_REF/kernel/setup.sh" | bash -s "$RESUKISU_REF"
+          echo "Using requested ReSukiSU ref: $RESUKISU_REF"
         fi
+        curl --fail --location --proto '=https' -LSs \
+          "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/$RESUKISU_REF/kernel/setup.sh" | \
+          bash -s "$RESUKISU_REF"
         
         cd KernelSU
         
