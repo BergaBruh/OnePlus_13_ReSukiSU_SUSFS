@@ -123,7 +123,10 @@ runs:
         repository: ${{ env.ACTION_REPO }}
         ref: ${{ env.ACTION_REF }}
         path: action-source
-        fetch-depth: 1
+        # The manifest may pin a file from this repository to an older commit.
+        # kernel-source-sync reads that blob locally instead of downloading a
+        # second archive from GitHub, so retain the repository history here.
+        fetch-depth: 0
 
     - name: Parse op_config_json
       shell: bash
