@@ -73,6 +73,9 @@ outputs:
   ksu_version:
     description: 'KernelSU version number'
     value: ${{ steps.save_metadata.outputs.ksu_version }}
+  ksu_commit_sha:
+    description: 'Resolved KernelSU / ReSukiSU commit SHA'
+    value: ${{ steps.save_metadata.outputs.ksu_commit_sha }}
   ksu_type:
     description: 'KernelSU Variant'
     value: ${{ steps.save_metadata.outputs.ksu_type }}
@@ -2311,6 +2314,7 @@ runs:
         cd "$ARTIFACTS_FOLDER"
         echo "kernel_version=${{ env.KERNEL_FULL_VER }}" >> "$GITHUB_OUTPUT"
         echo "ksu_version=${KSUVER:-unknown}" >> "$GITHUB_OUTPUT"
+        echo "ksu_commit_sha=${KSU_COMMIT_SHA:-unknown}" >> "$GITHUB_OUTPUT"
         echo "ksu_type=${{ inputs.ksu_type }}" >> "$GITHUB_OUTPUT"
         echo "build_timestamp=${EFFECTIVE_BUILD_TIMESTAMP:-unknown}" >> "$GITHUB_OUTPUT"
         if [ "${{ env.OP_SUSFS }}" = true ]; then

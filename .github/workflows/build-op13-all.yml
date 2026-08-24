@@ -158,9 +158,17 @@ jobs:
             exit 1
           }
 
+          resukisu_ref="$(jq -er '.sources.resukisu.ref' "$state")"
           resukisu_sha="$(jq -er '.sources.resukisu.sha' "$state")"
           susfs_sha="$(jq -er '.sources.susfs.sha' "$state")"
           global_kmi="$(jq -er '.target.kmi' "$state")"
+          # ReSukiSU publishes its CI/Beta builds from main.  Do not pass the
+          # cached state SHA to the builder: resolve main immediately before
+          # every kernel build so the embedded version follows upstream CI.
+          [[ "$resukisu_ref" == "main" ]] || {
+            echo "::error::ReSukiSU ref must track the CI/Beta branch 'main'"
+            exit 1
+          }
           [[ "$resukisu_sha" =~ ^[0-9a-f]{40}$ ]] || {
             echo "::error::Invalid ReSukiSU state pin"
             exit 1
@@ -177,6 +185,7 @@ jobs:
           echo "json=$(jq -c . "$MATRIX_CONFIG")" >> "$GITHUB_OUTPUT"
           echo "global_kmi=$global_kmi" >> "$GITHUB_OUTPUT"
           echo "model=$model" >> "$GITHUB_OUTPUT"
+          echo "resukisu_ref=$resukisu_ref" >> "$GITHUB_OUTPUT"
           echo "resukisu_sha=$resukisu_sha" >> "$GITHUB_OUTPUT"
           echo "susfs_sha=$susfs_sha" >> "$GITHUB_OUTPUT"
 
@@ -186,7 +195,7 @@ jobs:
         with:
           op_config_json: ${{ steps.config.outputs.json }}
           ksu_type: ReSukiSU
-          ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_sha }}
+          ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_ref }}
           susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_sha }}
           optimize_level: ${{ inputs.optimize_level || 'O2' }}
           clean: ${{ inputs.clean_build || false }}
@@ -208,7 +217,7 @@ jobs:
           MODEL: ${{ steps.config.outputs.model }}
           OOS: ${{ matrix.oos }}
           ORIGINAL_ZIP: ${{ steps.build.outputs.zip_name }}
-          RESUKISU_SHA: ${{ steps.config.outputs.resukisu_sha }}
+          RESUKISU_SHA: ${{ steps.build.outputs.ksu_commit_sha }}
           RESUKISU_VERSION: ${{ steps.build.outputs.ksu_version }}
           SLUG: ${{ matrix.slug }}
           SUSFS_SHA: ${{ steps.config.outputs.susfs_sha }}
