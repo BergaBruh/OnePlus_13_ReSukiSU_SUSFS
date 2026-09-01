@@ -752,12 +752,16 @@ if re.search(r"(?m)^ {12}(?:region|model):", "\n".join(row_blocks)):
 require_text(".github/update-state/op13-upstreams.json", "workflow must retain the pinned upstream state source")
 require_text(".sources.resukisu.ref", "workflow must retain the ReSukiSU CI branch")
 require_text(".sources.resukisu.sha", "workflow must retain the ReSukiSU state pin")
+require_text(".sources.susfs.ref", "workflow must retain the compatible SUSFS branch")
 require_text(".sources.susfs.sha", "workflow must retain the SUSFS state pin")
 require_text("resukisu_ref=\"$(jq -er '.sources.resukisu.ref' \"$state\")\"", "workflow must read the ReSukiSU CI branch")
+require_text("susfs_ref=\"$(jq -er '.sources.susfs.ref' \"$state\")\"", "workflow must read the compatible SUSFS branch")
 require_text("[[ \"$resukisu_ref\" == \"main\" ]]", "workflow must require the ReSukiSU CI/Beta branch")
+require_text("[[ \"$susfs_ref\" == \"gki-android15-6.6\" ]]", "workflow must require the compatible SUSFS branch")
 require_text("ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_ref }}", "workflow must resolve ReSukiSU CI immediately before the build")
 require_text("RESUKISU_SHA: ${{ steps.build.outputs.ksu_commit_sha }}", "release metadata must use the resolved ReSukiSU commit")
-require_text("susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_sha }}", "workflow must pass the SUSFS state pin")
+require_text("susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_ref }}", "workflow must resolve SUSFS from its compatible branch")
+require_text("SUSFS_SHA: ${{ steps.build.outputs.susfs_commit_sha }}", "release metadata must use the resolved SUSFS commit")
 require_text("op_config_json: ${{ steps.config.outputs.json }}", "workflow must pass the matrix config JSON to the build action")
 require_text("artifact_slug: ${{ matrix.slug }}", "workflow must pass the unique matrix slug to debug uploads")
 require_text("archive_final_zip: false", "matrix builds must upload uniquely named ZIPs directly")
@@ -933,6 +937,8 @@ for required, message in [
     ('CONFIG_KSU_SUSFS_SUS_SU=y', "ReSukiSU builds must enable SUSFS process-state helpers"),
     ('require_config_enabled KSU_SUSFS_SUS_SU "ReSukiSU SUSFS process state"', "Build Kernel must verify ReSukiSU SUSFS process-state helpers"),
     ('require_config_enabled BBG "BBG"', "Build Kernel must verify an enabled BBG flag"),
+    ('susfs_is_current_proc_no_su', "ReSukiSU builds must preflight the required SUSFS APIs"),
+    ('susfs_commit_sha=${SUSFS_COMMIT_SHA:-unknown}', "Build metadata must record the resolved SUSFS commit"),
     ('require_config_enabled TCP_CONG_BBR "BBR"', "Build Kernel must verify an enabled BBR flag"),
     ('require_config_enabled TCP_CONG_BBR3 "BBRv3"', "Build Kernel must verify an enabled BBRv3 flag"),
     ('require_config_enabled IP_NF_TARGET_TTL "TTL target"', "Build Kernel must verify an enabled TTL flag"),
