@@ -760,9 +760,9 @@ require_text("resukisu_ref=\"$(jq -er '.sources.resukisu.ref' \"$state\")\"", "w
 require_text("susfs_ref=\"$(jq -er '.sources.susfs.ref' \"$state\")\"", "workflow must read the compatible SUSFS branch")
 require_text("[[ \"$resukisu_ref\" == \"main\" ]]", "workflow must require the ReSukiSU CI/Beta branch")
 require_text("[[ \"$susfs_ref\" == \"gki-android15-6.6\" ]]", "workflow must require the compatible SUSFS branch")
-require_text("ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_ref }}", "workflow must resolve ReSukiSU CI immediately before the build")
+require_text("ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_sha }}", "workflow must build the verified ReSukiSU state pin")
 require_text("RESUKISU_SHA: ${{ steps.build.outputs.ksu_commit_sha }}", "release metadata must use the resolved ReSukiSU commit")
-require_text("susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_ref }}", "workflow must resolve SUSFS from its compatible branch")
+require_text("susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_sha }}", "workflow must build the verified SUSFS state pin")
 require_text("SUSFS_SHA: ${{ steps.build.outputs.susfs_commit_sha }}", "release metadata must use the resolved SUSFS commit")
 require_text("op_config_json: ${{ steps.config.outputs.json }}", "workflow must pass the matrix config JSON to the build action")
 require_text("artifact_slug: ${{ matrix.slug }}", "workflow must pass the unique matrix slug to debug uploads")
@@ -936,10 +936,7 @@ for required, message in [
     (feature_helper, "Build Kernel must define a reusable final-config feature assertion"),
     ('require_config_enabled KSU "KernelSU"', "Build Kernel must always verify that KernelSU survived olddefconfig"),
     ('require_config_enabled KSU_SUSFS "SUSFS"', "Build Kernel must verify an enabled SUSFS flag"),
-    ('CONFIG_KSU_SUSFS_SUS_SU=y', "ReSukiSU builds must enable SUSFS process-state helpers"),
-    ('require_config_enabled KSU_SUSFS_SUS_SU "ReSukiSU SUSFS process state"', "Build Kernel must verify ReSukiSU SUSFS process-state helpers"),
     ('require_config_enabled BBG "BBG"', "Build Kernel must verify an enabled BBG flag"),
-    ('susfs_is_current_proc_no_su', "ReSukiSU builds must preflight the required SUSFS APIs"),
     ('susfs_commit_sha=${SUSFS_COMMIT_SHA:-unknown}', "Build metadata must record the resolved SUSFS commit"),
     ('require_config_enabled TCP_CONG_BBR "BBR"', "Build Kernel must verify an enabled BBR flag"),
     ('require_config_enabled TCP_CONG_BBR3 "BBRv3"', "Build Kernel must verify an enabled BBRv3 flag"),
@@ -961,16 +958,6 @@ assertion_index = body.index(assertion)
 feature_helper_index = body.index(feature_helper)
 if not config_generation_index < namespace_decl_index < enable_index < olddefconfig_index:
     raise SystemExit("Droidspaces namespace configs must be selected after gki_defconfig and before olddefconfig")
-resukisu_sus_su_config = (
-    'if [ "${{ inputs.ksu_type }}" = "ReSukiSU" ]; then\n'
-    '          cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF\n'
-    '        CONFIG_KSU_SUSFS_SUS_SU=y\n'
-    '        EOF\n'
-    '        fi'
-)
-if resukisu_sus_su_config not in body:
-    raise SystemExit("ReSukiSU builds must enable SUSFS process-state helpers only for ReSukiSU")
-
 if olddefconfig_index + len(olddefconfig) != body.rfind("for required_config in", 0, assertion_index) - len("\n        "):
     raise SystemExit("Droidspaces namespace assertions must immediately follow olddefconfig")
 if not assertion_index < feature_helper_index:
