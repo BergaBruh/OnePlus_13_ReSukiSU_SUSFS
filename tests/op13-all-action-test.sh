@@ -930,6 +930,8 @@ for required, message in [
     (feature_helper, "Build Kernel must define a reusable final-config feature assertion"),
     ('require_config_enabled KSU "KernelSU"', "Build Kernel must always verify that KernelSU survived olddefconfig"),
     ('require_config_enabled KSU_SUSFS "SUSFS"', "Build Kernel must verify an enabled SUSFS flag"),
+    ('CONFIG_KSU_SUSFS_SUS_SU=y', "ReSukiSU builds must enable SUSFS process-state helpers"),
+    ('require_config_enabled KSU_SUSFS_SUS_SU "ReSukiSU SUSFS process state"', "Build Kernel must verify ReSukiSU SUSFS process-state helpers"),
     ('require_config_enabled BBG "BBG"', "Build Kernel must verify an enabled BBG flag"),
     ('require_config_enabled TCP_CONG_BBR "BBR"', "Build Kernel must verify an enabled BBR flag"),
     ('require_config_enabled TCP_CONG_BBR3 "BBRv3"', "Build Kernel must verify an enabled BBRv3 flag"),
@@ -951,6 +953,16 @@ assertion_index = body.index(assertion)
 feature_helper_index = body.index(feature_helper)
 if not config_generation_index < namespace_decl_index < enable_index < olddefconfig_index:
     raise SystemExit("Droidspaces namespace configs must be selected after gki_defconfig and before olddefconfig")
+resukisu_sus_su_config = (
+    'if [ "${{ inputs.ksu_type }}" = "ReSukiSU" ]; then\n'
+    '          cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF\n'
+    '        CONFIG_KSU_SUSFS_SUS_SU=y\n'
+    '        EOF\n'
+    '        fi'
+)
+if resukisu_sus_su_config not in body:
+    raise SystemExit("ReSukiSU builds must enable SUSFS process-state helpers only for ReSukiSU")
+
 if olddefconfig_index + len(olddefconfig) != body.rfind("for required_config in", 0, assertion_index) - len("\n        "):
     raise SystemExit("Droidspaces namespace assertions must immediately follow olddefconfig")
 if not assertion_index < feature_helper_index:
