@@ -82,6 +82,9 @@ outputs:
   susfs_version:
     description: 'SUSFS version string'
     value: ${{ steps.save_metadata.outputs.susfs_version }}
+  susfs_commit_sha:
+    description: 'Resolved SUSFS commit SHA'
+    value: ${{ steps.save_metadata.outputs.susfs_commit_sha }}
   build_timestamp:
     description: 'Effective kernel build timestamp used in uname -a'
     value: ${{ steps.save_metadata.outputs.build_timestamp }}
@@ -974,12 +977,34 @@ runs:
         retry_clone "https://github.com/WildKernels/kernel_patches.git" "main" "1"
         
         if [ "${{ env.OP_SUSFS }}" = true ]; then
-          echo "Using SUSFS branch/commit: $SUSFS_BRANCH"
-          if ! retry_fetch_archive "https://gitlab.com/simonpunk/susfs4ksu.git" "$SUSFS_BRANCH"; then
+          susfs_repo="https://gitlab.com/simonpunk/susfs4ksu.git"
+          if [[ "$SUSFS_BRANCH" =~ ^[0-9a-f]{40}$ ]]; then
+            susfs_commit_sha="$SUSFS_BRANCH"
+          else
+            susfs_commit_sha="$(git ls-remote "$susfs_repo" "refs/heads/$SUSFS_BRANCH" | awk 'NR == 1 { print $1 }')"
+          fi
+          [[ "$susfs_commit_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Could not resolve SUSFS ref '$SUSFS_BRANCH' to an immutable commit SHA"
+            exit 1
+          }
+          echo "Using SUSFS $SUSFS_BRANCH at $susfs_commit_sha"
+          if ! retry_fetch_archive "$susfs_repo" "$susfs_commit_sha"; then
             echo "::error::Failed to fetch SUSFS archive after multiple attempts"
             exit 1
           fi
-          echo "SUSFS_COMMIT_SHA=$SUSFS_BRANCH" >> $GITHUB_ENV
+          echo "SUSFS_COMMIT_SHA=$susfs_commit_sha" >> $GITHUB_ENV
+
+          # ReSukiSU CI 35114+ links these helpers directly. Fail before the
+          # expensive kernel build when the selected SUSFS revision is stale.
+          if [ "${{ inputs.ksu_type }}" = "ReSukiSU" ]; then
+            for symbol in susfs_is_current_proc_no_su susfs_set_current_proc_no_su \
+              susfs_clear_current_proc_no_su susfs_set_current_proc_umounted_for_zygote_next; do
+              grep -Rqs -- "$symbol" "$SUSFS_FOLDER/kernel_patches" || {
+                echo "::error::Resolved SUSFS $susfs_commit_sha lacks $symbol required by ReSukiSU"
+                exit 1
+              }
+            done
+          fi
         fi
         echo "✅ Dependencies cloned"
         echo "::endgroup::"
@@ -2327,6 +2352,7 @@ runs:
         echo "build_timestamp=${EFFECTIVE_BUILD_TIMESTAMP:-unknown}" >> "$GITHUB_OUTPUT"
         if [ "${{ env.OP_SUSFS }}" = true ]; then
           echo "susfs_version=${SUSVER:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "susfs_commit_sha=${SUSFS_COMMIT_SHA:-unknown}" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Customize Kernel Branding
