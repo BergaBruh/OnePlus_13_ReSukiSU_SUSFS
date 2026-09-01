@@ -160,6 +160,7 @@ jobs:
 
           resukisu_ref="$(jq -er '.sources.resukisu.ref' "$state")"
           resukisu_sha="$(jq -er '.sources.resukisu.sha' "$state")"
+          susfs_ref="$(jq -er '.sources.susfs.ref' "$state")"
           susfs_sha="$(jq -er '.sources.susfs.sha' "$state")"
           global_kmi="$(jq -er '.target.kmi' "$state")"
           # ReSukiSU publishes its CI/Beta builds from main.  Do not pass the
@@ -171,6 +172,10 @@ jobs:
           }
           [[ "$resukisu_sha" =~ ^[0-9a-f]{40}$ ]] || {
             echo "::error::Invalid ReSukiSU state pin"
+            exit 1
+          }
+          [[ "$susfs_ref" == "gki-android15-6.6" ]] || {
+            echo "::error::SUSFS ref must track the compatible gki-android15-6.6 branch"
             exit 1
           }
           [[ "$susfs_sha" =~ ^[0-9a-f]{40}$ ]] || {
@@ -187,6 +192,7 @@ jobs:
           echo "model=$model" >> "$GITHUB_OUTPUT"
           echo "resukisu_ref=$resukisu_ref" >> "$GITHUB_OUTPUT"
           echo "resukisu_sha=$resukisu_sha" >> "$GITHUB_OUTPUT"
+          echo "susfs_ref=$susfs_ref" >> "$GITHUB_OUTPUT"
           echo "susfs_sha=$susfs_sha" >> "$GITHUB_OUTPUT"
 
       - name: Build OP13 kernel
@@ -196,7 +202,9 @@ jobs:
           op_config_json: ${{ steps.config.outputs.json }}
           ksu_type: ReSukiSU
           ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_ref }}
-          susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_sha }}
+          # ReSukiSU CI is resolved at build time; use its matching SUSFS
+          # branch and let the composite action resolve an immutable SHA.
+          susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_ref }}
           optimize_level: ${{ inputs.optimize_level || 'O2' }}
           clean: ${{ inputs.clean_build || false }}
           debug: ${{ inputs.debug || false }}
@@ -220,7 +228,7 @@ jobs:
           RESUKISU_SHA: ${{ steps.build.outputs.ksu_commit_sha }}
           RESUKISU_VERSION: ${{ steps.build.outputs.ksu_version }}
           SLUG: ${{ matrix.slug }}
-          SUSFS_SHA: ${{ steps.config.outputs.susfs_sha }}
+          SUSFS_SHA: ${{ steps.build.outputs.susfs_commit_sha }}
           SUSFS_VERSION: ${{ steps.build.outputs.susfs_version }}
         run: |
           set -euo pipefail
