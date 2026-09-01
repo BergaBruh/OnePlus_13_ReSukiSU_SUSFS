@@ -163,9 +163,9 @@ jobs:
           susfs_ref="$(jq -er '.sources.susfs.ref' "$state")"
           susfs_sha="$(jq -er '.sources.susfs.sha' "$state")"
           global_kmi="$(jq -er '.target.kmi' "$state")"
-          # ReSukiSU publishes its CI/Beta builds from main.  Do not pass the
-          # cached state SHA to the builder: resolve main immediately before
-          # every kernel build so the embedded version follows upstream CI.
+          # ReSukiSU 35114 currently requires SUSFS APIs not present in the
+          # official gki-android15-6.6 source. Build the last verified pair
+          # pinned in state until upstream publishes a compatible revision.
           [[ "$resukisu_ref" == "main" ]] || {
             echo "::error::ReSukiSU ref must track the CI/Beta branch 'main'"
             exit 1
@@ -201,10 +201,8 @@ jobs:
         with:
           op_config_json: ${{ steps.config.outputs.json }}
           ksu_type: ReSukiSU
-          ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_ref }}
-          # ReSukiSU CI is resolved at build time; use its matching SUSFS
-          # branch and let the composite action resolve an immutable SHA.
-          susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_ref }}
+          ksu_branch_or_hash: ${{ steps.config.outputs.resukisu_sha }}
+          susfs_commit_hash_or_branch: ${{ steps.config.outputs.susfs_sha }}
           optimize_level: ${{ inputs.optimize_level || 'O2' }}
           clean: ${{ inputs.clean_build || false }}
           debug: ${{ inputs.debug || false }}
