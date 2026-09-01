@@ -213,6 +213,8 @@ susfs_step = re.search(
 if not susfs_step:
     raise SystemExit("build action must retain the Apply SUSFS Patches step")
 susfs_body = susfs_step.group("body")
+if '"v2.2.0"|"v2.3.0")' not in susfs_body:
+    raise SystemExit("SUSFS v2.3.0 must be accepted by the patch compatibility matrix")
 susfs_patch = 'patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/50_add_susfs_in_${{ env.SUSFS_KERNEL_BRANCH }}.patch"'
 fold_decl = "extern void __fold_filemap_fixup_entry(struct vma_iterator *iter, unsigned long *end);"
 fold_decl_check = f"grep -qxF '{fold_decl}' ./include/linux/page_size_compat.h"
