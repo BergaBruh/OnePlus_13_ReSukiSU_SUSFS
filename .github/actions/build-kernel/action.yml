@@ -994,17 +994,6 @@ runs:
           fi
           echo "SUSFS_COMMIT_SHA=$susfs_commit_sha" >> $GITHUB_ENV
 
-          # ReSukiSU CI 35114+ links these helpers directly. Fail before the
-          # expensive kernel build when the selected SUSFS revision is stale.
-          if [ "${{ inputs.ksu_type }}" = "ReSukiSU" ]; then
-            for symbol in susfs_is_current_proc_no_su susfs_set_current_proc_no_su \
-              susfs_clear_current_proc_no_su susfs_set_current_proc_umounted_for_zygote_next; do
-              grep -Rqs -- "$symbol" "$SUSFS_FOLDER/kernel_patches" || {
-                echo "::error::Resolved SUSFS $susfs_commit_sha lacks $symbol required by ReSukiSU"
-                exit 1
-              }
-            done
-          fi
         fi
         echo "✅ Dependencies cloned"
         echo "::endgroup::"
@@ -1383,14 +1372,6 @@ runs:
         CONFIG_KSU_SUSFS_SUS_MAP=y
         EOF
 
-        # ReSukiSU CI 35114+ uses SUSFS' per-process no-su state helpers.
-        # Those symbols are only compiled when SUS_SU is enabled; keep this
-        # scoped to ReSukiSU so standard KernelSU builds retain their policy.
-        if [ "${{ inputs.ksu_type }}" = "ReSukiSU" ]; then
-          cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
-        CONFIG_KSU_SUSFS_SUS_SU=y
-        EOF
-        fi
         
         echo "::endgroup::"
         
@@ -2564,9 +2545,6 @@ runs:
         if [ "$OP_SUSFS" = true ]; then
           require_config_enabled KSU_SUSFS "SUSFS"
           require_config_enabled KSU_SUSFS_SPOOF_UNAME "SUSFS uname spoofing"
-          if [ "${{ inputs.ksu_type }}" = "ReSukiSU" ]; then
-            require_config_enabled KSU_SUSFS_SUS_SU "ReSukiSU SUSFS process state"
-          fi
         fi
         if [ "$OP_BBG" = true ]; then
           require_config_enabled BBG "BBG"
