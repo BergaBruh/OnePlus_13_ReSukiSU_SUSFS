@@ -1053,6 +1053,12 @@ runs:
         
         cd ..
         KSU_COMMIT_SHA=$(git rev-parse HEAD)
+        if [[ "$RESUKISU_REF" =~ ^[0-9a-f]{40}$ ]]; then
+          [[ "$KSU_COMMIT_SHA" == "$RESUKISU_REF" ]] || {
+            echo "::error::ReSukiSU checkout $KSU_COMMIT_SHA differs from requested immutable ref $RESUKISU_REF"
+            exit 1
+          }
+        fi
         echo "KSU_COMMIT_SHA=$KSU_COMMIT_SHA" >> $GITHUB_ENV
         
         echo "Add KSU Configuration Settings"

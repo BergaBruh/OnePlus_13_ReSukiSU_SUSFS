@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "validation": {
+    "experimental": true,
+    "supported": false,
+    "publish_release": false,
+    "flash_permitted": false
+  },
+  "target": {
+    "device": "OnePlus 13 Global",
+    "firmware_version": "16.0.9.401(EX01)",
+    "config": "configs/oos16/OP13-GLOBAL-6.6.118.json",
+    "manifest": "manifests/oos16/oneplus_13_global_6.6.118_w.xml"
+  },
+  "sources": {
+    "kernel_common": {
+      "repository": "OnePlusOSS/android_kernel_common_oneplus_sm8750",
+      "ref": "oneplus/sm8750_b_16.0.0_oneplus_13",
+      "sha": "e1b346b6b4f4096eb342ae3684838a942fd6f6c4"
+    },
+    "kernel_modules": {
+      "repository": "OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8750",
+      "ref": "oneplus/sm8750_b_16.0.0_oneplus_13",
+      "sha": "d50b305f7da9e14715a25120a4ac7b1a4b8b97c3"
+    },
+    "resukisu": {
+      "repository": "ReSukiSU/ReSukiSU",
+      "ref": "main",
+      "sha": "9d0ff6aea9e25fc7dd26f4643175a41f68375e5e"
+    },
+    "susfs": {
+      "repository": "https://gitlab.com/simonpunk/susfs4ksu",
+      "ref": "gki-android15-6.6",
+      "version": "v2.3.0",
+      "sha": "937215cb3a1b1f333d764c366c7a49972fa8e7a0"
+    }
+  }
+}

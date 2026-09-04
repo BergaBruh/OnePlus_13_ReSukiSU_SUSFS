@@ -1,0 +1,105 @@
+name: Experimental OP13 Global ReSukiSU/SUSFS validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Clean diagnostic build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build definitions
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Preflight exact experimental pins
+        id: pins
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          STATE_PATH=.github/update-state/op13-experimental-resukisu-susfs.json
+          CONFIG_PATH=configs/oos16/OP13-GLOBAL-6.6.118.json
+          MANIFEST_PATH=manifests/oos16/oneplus_13_global_6.6.118_w.xml
+          EXPECTED_RESUKISU_SHA=9d0ff6aea9e25fc7dd26f4643175a41f68375e5e
+          EXPECTED_SUSFS_SHA=937215cb3a1b1f333d764c366c7a49972fa8e7a0
+          EXPECTED_KERNEL_COMMON_SHA=e1b346b6b4f4096eb342ae3684838a942fd6f6c4
+          EXPECTED_KERNEL_MODULES_SHA=d50b305f7da9e14715a25120a4ac7b1a4b8b97c3
+
+          [[ -f "$STATE_PATH" && -f "$CONFIG_PATH" && -f "$MANIFEST_PATH" ]] || {
+            echo "::error::Missing experimental build input"
+            exit 1
+          }
+
+          jq -e \
+            --arg config "$CONFIG_PATH" \
+            --arg manifest "$MANIFEST_PATH" \
+            --arg resukisu "$EXPECTED_RESUKISU_SHA" \
+            --arg susfs "$EXPECTED_SUSFS_SHA" \
+            --arg common "$EXPECTED_KERNEL_COMMON_SHA" \
+            --arg modules "$EXPECTED_KERNEL_MODULES_SHA" \
+            '.validation == {experimental: true, supported: false, publish_release: false, flash_permitted: false}
+             and .target.firmware_version == "16.0.9.401(EX01)"
+             and .target.config == $config
+             and .target.manifest == $manifest
+             and .sources.resukisu.sha == $resukisu
+             and .sources.susfs.sha == $susfs
+             and .sources.susfs.version == "v2.3.0"
+             and .sources.kernel_common.sha == $common
+             and .sources.kernel_modules.sha == $modules' \
+            "$STATE_PATH" >/dev/null
+
+          jq -e --arg manifest "$(basename "$MANIFEST_PATH")" \
+            '.model == "OP13" and .os_version == "OOS16" and .manifest == $manifest and .susfs == true' \
+            "$CONFIG_PATH" >/dev/null
+          grep -F "revision=\"$EXPECTED_KERNEL_COMMON_SHA\"" "$MANIFEST_PATH" >/dev/null
+          grep -F "revision=\"$EXPECTED_KERNEL_MODULES_SHA\"" "$MANIFEST_PATH" >/dev/null
+
+          printf 'config_json=%s\n' "$(jq -c . "$CONFIG_PATH")" >> "$GITHUB_OUTPUT"
+          printf 'resukisu_sha=%s\n' "$EXPECTED_RESUKISU_SHA" >> "$GITHUB_OUTPUT"
+          printf 'susfs_sha=%s\n' "$EXPECTED_SUSFS_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Build experimental OP13 kernel
+        id: build
+        uses: ./.github/actions/build-kernel
+        with:
+          op_config_json: ${{ steps.pins.outputs.config_json }}
+          ksu_type: ReSukiSU
+          ksu_branch_or_hash: ${{ steps.pins.outputs.resukisu_sha }}
+          susfs_commit_hash_or_branch: ${{ steps.pins.outputs.susfs_sha }}
+          clean: true
+          debug: true
+          upload_final_zip: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify resolved immutable pins
+        shell: bash
+        env:
+          EXPECTED_RESUKISU_SHA: ${{ steps.pins.outputs.resukisu_sha }}
+          EXPECTED_SUSFS_SHA: ${{ steps.pins.outputs.susfs_sha }}
+          ACTUAL_RESUKISU_SHA: ${{ steps.build.outputs.ksu_commit_sha }}
+          ACTUAL_SUSFS_SHA: ${{ steps.build.outputs.susfs_commit_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$ACTUAL_RESUKISU_SHA" == "$EXPECTED_RESUKISU_SHA" ]] || {
+            echo "::error::ReSukiSU HEAD differs from the approved experimental pin"
+            exit 1
+          }
+          [[ "$ACTUAL_SUSFS_SHA" == "$EXPECTED_SUSFS_SHA" ]] || {
+            echo "::error::SUSFS revision differs from the approved experimental pin"
+            exit 1
+          }
+
+      - name: Upload inspection ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: experimental-op13-inspection-zip
+          path: OP13/artifacts/${{ steps.build.outputs.zip_name }}
+          archive: false
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
