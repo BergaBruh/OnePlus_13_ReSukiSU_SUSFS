@@ -61,7 +61,7 @@ jobs:
           - slug: oos16-op13-global-6-6-118
             config: configs/oos16/OP13-GLOBAL-6.6.118.json
             manifest: manifests/oos16/oneplus_13_global_6.6.118_w.xml
-            compatibility: CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US
+            compatibility: CPH2649 IN, CPH2653 EU/GLO
             oos: OOS16
           - slug: oos16-op13
             config: configs/oos16/OP13.json
@@ -163,9 +163,8 @@ jobs:
           susfs_ref="$(jq -er '.sources.susfs.ref' "$state")"
           susfs_sha="$(jq -er '.sources.susfs.sha' "$state")"
           global_kmi="$(jq -er '.target.kmi' "$state")"
-          # ReSukiSU 35114 currently requires SUSFS APIs not present in the
-          # official gki-android15-6.6 source. Build the last verified pair
-          # pinned in state until upstream publishes a compatible revision.
+          # ReSukiSU now lives at Baka-SU/BakaSU. Use immutable state pins
+          # for both the root driver and the matching android15-6.6 SUSFS.
           [[ "$resukisu_ref" == "main" ]] || {
             echo "::error::ReSukiSU ref must track the CI/Beta branch 'main'"
             exit 1
@@ -468,7 +467,7 @@ jobs:
               oos16-op13-global-6-6-118)
                 expected_config=configs/oos16/OP13-GLOBAL-6.6.118.json
                 expected_manifest=manifests/oos16/oneplus_13_global_6.6.118_w.xml
-                expected_compatibility='CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US'
+                expected_compatibility='CPH2649 IN, CPH2653 EU/GLO'
                 expected_oos=OOS16
                 ;;
               oos16-op13)

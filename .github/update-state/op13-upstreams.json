@@ -11,7 +11,10 @@
     "kmi": "6.6.118-android15-8-g2e6b9c3812c5-ab15114928-4k",
     "kernel_source_release_tag": "android15-6.6-2026-01_r22",
     "oxygenos": "16.0.9.401(EX01)",
-    "kernel": "6.6.118"
+    "kernel": "6.6.118",
+    "requested_firmware_version": "16.0.10.600",
+    "source_fallback": true,
+    "source_checked_on": "2026-10-09"
   },
   "sources": {
     "kernel_common": {
@@ -25,14 +28,15 @@
       "sha": "d50b305f7da9e14715a25120a4ac7b1a4b8b97c3"
     },
     "resukisu": {
-      "repository": "ReSukiSU/ReSukiSU",
+      "repository": "Baka-SU/BakaSU",
       "ref": "main",
-      "sha": "b2ac2fc8703ce9f5226e2a38a59f8b72f8a3005c"
+      "sha": "8450dd287ef6ee25ca2b6b858b43c9354c73060c"
     },
     "susfs": {
       "repository": "https://gitlab.com/simonpunk/susfs4ksu",
       "ref": "gki-android15-6.6",
-      "sha": "069baca65e58557019dbf906e802f518428c5a84"
+      "sha": "937215cb3a1b1f333d764c366c7a49972fa8e7a0",
+      "version": "v2.3.0"
     }
   }
 }

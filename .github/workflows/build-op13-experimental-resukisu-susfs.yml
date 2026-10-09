@@ -25,7 +25,7 @@ jobs:
           STATE_PATH=.github/update-state/op13-experimental-resukisu-susfs.json
           CONFIG_PATH=configs/oos16/OP13-GLOBAL-6.6.118.json
           MANIFEST_PATH=manifests/oos16/oneplus_13_global_6.6.118_w.xml
-          EXPECTED_RESUKISU_SHA=9d0ff6aea9e25fc7dd26f4643175a41f68375e5e
+          EXPECTED_RESUKISU_SHA=8450dd287ef6ee25ca2b6b858b43c9354c73060c
           EXPECTED_SUSFS_SHA=937215cb3a1b1f333d764c366c7a49972fa8e7a0
           EXPECTED_KERNEL_COMMON_SHA=e1b346b6b4f4096eb342ae3684838a942fd6f6c4
           EXPECTED_KERNEL_MODULES_SHA=d50b305f7da9e14715a25120a4ac7b1a4b8b97c3
@@ -43,6 +43,9 @@ jobs:
             --arg common "$EXPECTED_KERNEL_COMMON_SHA" \
             --arg modules "$EXPECTED_KERNEL_MODULES_SHA" \
             '.validation == {experimental: true, supported: false, publish_release: false, flash_permitted: false}
+             and .target.requested_firmware_version == "16.0.10.600"
+             and .target.source_fallback == true
+             and .sources.resukisu.repository == "Baka-SU/BakaSU"
              and .target.firmware_version == "16.0.9.401(EX01)"
              and .target.config == $config
              and .target.manifest == $manifest
