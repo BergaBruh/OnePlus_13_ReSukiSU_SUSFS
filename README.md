@@ -36,9 +36,12 @@ as checked on 2026-10-09. The Global build therefore uses the latest published
 ReSukiSU now lives at **Baka-SU/BakaSU**. OP13 builds pin its current main
 revision `8450dd287ef6ee25ca2b6b858b43c9354c73060c` and **SUSFS v2.3.0**
 `937215cb3a1b1f333d764c366c7a49972fa8e7a0` from `gki-android15-6.6`.
-Full compilation and device validation of this pair remain pending;
-compatibility with 16.0.10.600 is unverified. See the
+All six kernel builds passed in [run 37908077540](https://github.com/BergaBruh/OnePlus_13_ReSukiSU_SUSFS/actions/runs/37908077540).
+Device validation remains pending; compatibility with 16.0.10.600 is unverified. See the
 [update notes and validation workflow](docs/op13-upstream-update.md).
+
+If the SUSFS module displays **Unsupported Kernel** or **SUS PATH UNDEFINED**,
+follow the [helper diagnosis and repair instructions](docs/susfs-unsupported-kernel.md).
 
 ## 🔧 Available Kernels
 

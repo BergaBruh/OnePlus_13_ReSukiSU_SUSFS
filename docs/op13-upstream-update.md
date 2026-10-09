@@ -54,12 +54,15 @@ bash tests/root-driver-checkout-test.sh
 bash tests/susfs-download-test.sh
 ```
 
-Full kernel compilation and device boot validation remain pending. To compile
+All six kernel builds and release publication passed in
+[run 37908077540](https://github.com/BergaBruh/OnePlus_13_ReSukiSU_SUSFS/actions/runs/37908077540).
+Device boot and module API validation remain pending. To compile
 the new Global pair, run **Experimental OP13 Global ReSukiSU/SUSFS validation**
 on the update branch in GitHub Actions. It checks the firmware fallback,
 immutable source pins, and resolved root/SUSFS revisions, and uploads an
 inspection ZIP and diagnostics. The all-variant release workflow also uses the
-updated pair, so complete this diagnostic build before merging into `main`.
+updated pair. For a module reporting Unsupported Kernel after flashing, see
+[SUSFS helper diagnosis and repair](susfs-unsupported-kernel.md).
 
 ## SUSFS transport failure in run 37900102723
 
