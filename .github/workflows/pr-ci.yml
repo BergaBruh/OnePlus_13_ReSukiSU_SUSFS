@@ -65,6 +65,7 @@ jobs:
           bash tests/release-workflow-contract-test.sh
           bash tests/op13-experimental-resukisu-susfs-contract-test.sh
           bash tests/root-driver-checkout-test.sh
+          bash tests/susfs-download-test.sh
 
       - name: Check pull request whitespace
         if: ${{ github.event_name == 'pull_request' }}

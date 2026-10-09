@@ -51,6 +51,7 @@ bash tests/op13-baseline-build-test.sh
 bash tests/release-workflow-contract-test.sh
 bash tests/op13-experimental-resukisu-susfs-contract-test.sh
 bash tests/root-driver-checkout-test.sh
+bash tests/susfs-download-test.sh
 ```
 
 Full kernel compilation and device boot validation remain pending. To compile
@@ -59,3 +60,19 @@ on the update branch in GitHub Actions. It checks the firmware fallback,
 immutable source pins, and resolved root/SUSFS revisions, and uploads an
 inspection ZIP and diagnostics. The all-variant release workflow also uses the
 updated pair, so complete this diagnostic build before merging into `main`.
+
+## SUSFS transport failure in run 37900102723
+
+All six matrix jobs failed in **Fetch SusFS and Other Dependencies**, before
+root integration or kernel compilation. The GitLab archive downloader exhausted
+three attempts in roughly 16 seconds. Its quiet aria2 mode suppressed the
+underlying transport error, so the logs do not establish an HTTP status or
+prove a problem with the selected SUSFS commit.
+
+The downloader now tries a shallow Git fetch of the exact SHA and verifies
+`HEAD` before accepting it. If Git transport fails, it tries the official
+immutable archive with a single curl connection, visible HTTP errors, retries,
+and timeouts. Invalid gzip/HTML responses and incomplete source archives fail
+and are removed. No branch tip or different SUSFS revision is substituted.
+The download tests cover Git success, archive fallback, invalid responses,
+transport failure, SHA mismatch, and mutable-ref rejection using local fixtures.
