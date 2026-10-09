@@ -10,7 +10,10 @@
     "device": "OnePlus 13 Global",
     "firmware_version": "16.0.9.401(EX01)",
     "config": "configs/oos16/OP13-GLOBAL-6.6.118.json",
-    "manifest": "manifests/oos16/oneplus_13_global_6.6.118_w.xml"
+    "manifest": "manifests/oos16/oneplus_13_global_6.6.118_w.xml",
+    "requested_firmware_version": "16.0.10.600",
+    "source_fallback": true,
+    "source_checked_on": "2026-10-09"
   },
   "sources": {
     "kernel_common": {
@@ -24,9 +27,9 @@
       "sha": "d50b305f7da9e14715a25120a4ac7b1a4b8b97c3"
     },
     "resukisu": {
-      "repository": "ReSukiSU/ReSukiSU",
+      "repository": "Baka-SU/BakaSU",
       "ref": "main",
-      "sha": "9d0ff6aea9e25fc7dd26f4643175a41f68375e5e"
+      "sha": "8450dd287ef6ee25ca2b6b858b43c9354c73060c"
     },
     "susfs": {
       "repository": "https://gitlab.com/simonpunk/susfs4ksu",

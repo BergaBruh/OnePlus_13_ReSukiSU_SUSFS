@@ -1053,12 +1053,6 @@ runs:
         
         cd ..
         KSU_COMMIT_SHA=$(git rev-parse HEAD)
-        if [[ "$RESUKISU_REF" =~ ^[0-9a-f]{40}$ ]]; then
-          [[ "$KSU_COMMIT_SHA" == "$RESUKISU_REF" ]] || {
-            echo "::error::ReSukiSU checkout $KSU_COMMIT_SHA differs from requested immutable ref $RESUKISU_REF"
-            exit 1
-          }
-        fi
         echo "KSU_COMMIT_SHA=$KSU_COMMIT_SHA" >> $GITHUB_ENV
         
         echo "Add KSU Configuration Settings"
@@ -1073,7 +1067,7 @@ runs:
         echo "✅ KernelSU added (commit: ${KSU_COMMIT_SHA:0:8})"
         echo "::endgroup::"
 
-    - name: Add ReSukiSU (The Sukisaku Project)
+    - name: Add ReSukiSU (BakaSU upstream)
       shell: bash
       if: ${{ inputs.ksu_type == 'ReSukiSU' }}
       run: |
@@ -1094,7 +1088,7 @@ runs:
         if ! curl --fail --location --proto '=https' -LsS \
           --connect-timeout 20 --max-time 180 \
           --retry 5 --retry-all-errors --retry-delay 5 \
-          "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/$RESUKISU_REF/kernel/setup.sh" \
+          "https://raw.githubusercontent.com/Baka-SU/BakaSU/$RESUKISU_REF/kernel/setup.sh" \
           -o "$RESUKISU_SETUP"; then
           echo "::error::Failed to download ReSukiSU setup.sh after retries"
           exit 1
@@ -1111,6 +1105,12 @@ runs:
         KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" $BASE_VERSION)
         
         KSU_COMMIT_SHA=$(git rev-parse HEAD)
+        if [[ "$RESUKISU_REF" =~ ^[0-9a-f]{40}$ ]]; then
+          [[ "$KSU_COMMIT_SHA" == "$RESUKISU_REF" ]] || {
+            echo "::error::ReSukiSU checkout $KSU_COMMIT_SHA differs from requested immutable ref $RESUKISU_REF"
+            exit 1
+          }
+        fi
         echo "KSU_COMMIT_SHA=$KSU_COMMIT_SHA" >> $GITHUB_ENV
         
         cd ..
@@ -2927,7 +2927,7 @@ runs:
           
           if [ "$KSU_SHA" != "unknown" ]; then
             if [ "${{ inputs.ksu_type }}" = "ReSukiSU" ]; then
-              echo "| **ReSukiSU Commit** | [\`${KSU_SHA:0:8}\`](https://github.com/ReSukiSU/ReSukiSU/commit/$KSU_SHA) |"
+              echo "| **ReSukiSU Commit** | [\`${KSU_SHA:0:8}\`](https://github.com/Baka-SU/BakaSU/commit/$KSU_SHA) |"
             else
               echo "| **KSU Commit** | [\`${KSU_SHA:0:8}\`](https://github.com/tiann/KernelSU/commit/$KSU_SHA) |"
             fi

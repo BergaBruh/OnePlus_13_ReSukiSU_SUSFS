@@ -27,6 +27,19 @@ Flashing this kernel will not void your warranty, but there is always a risk of 
 
 </div>
 
+## OnePlus 13: current source target
+
+The requested OxygenOS **16.0.10.600** sources are not published in OnePlusOSS
+as checked on 2026-10-09. The Global build therefore uses the latest published
+**16.0.9.401(EX01)** sources with **6.6.118 / android15 KMI**.
+
+ReSukiSU now lives at **Baka-SU/BakaSU**. OP13 builds pin its current main
+revision `8450dd287ef6ee25ca2b6b858b43c9354c73060c` and **SUSFS v2.3.0**
+`937215cb3a1b1f333d764c366c7a49972fa8e7a0` from `gki-android15-6.6`.
+Full compilation and device validation of this pair remain pending;
+compatibility with 16.0.10.600 is unverified. See the
+[update notes and validation workflow](docs/op13-upstream-update.md).
+
 ## 🔧 Available Kernels
 
 <div align="center">
@@ -71,7 +84,7 @@ Flashing this kernel will not void your warranty, but there is always a risk of 
 ## 📋 Installation Instructions
 
 - **KernelSU**: Developed by [tiann](https://github.com/tiann/KernelSU).
-- **ReSukiSU**: Developed by [ReSukiSU Team](https://github.com/ReSukiSU/ReSukiSU)
+- **ReSukiSU**: Developed by [ReSukiSU Team](https://github.com/Baka-SU/BakaSU)
 - **Magic-KSU**: Developed by [5ec1cff](https://github.com/5ec1cff/KernelSU).  
 - **SUSFS**: Developed by [simonpunk](https://gitlab.com/simonpunk/susfs4ksu.git).
 - **SUSFS Module**: Developed by [sidex15](https://github.com/sidex15).
@@ -92,7 +105,7 @@ You can also find Installation instructions in the release notes.
 | 🔧 **Project** | 👨‍💻 **Developer** | 🔗 **Link** |
 |:---------------:|:----------------:|:-----------:|
 | **KernelSU** | tiann | [![GitHub](https://img.shields.io/badge/GitHub-tiann-blue?style=flat-square&logo=github)](https://github.com/tiann/KernelSU) |
-| **ReSukiSU** | resukisu | [![GitHub](https://img.shields.io/badge/GitHub-resukisu-blue?style=flat-square&logo=github)](https://github.com/ReSukiSU/ReSukiSU) |
+| **ReSukiSU** | resukisu | [![GitHub](https://img.shields.io/badge/GitHub-resukisu-blue?style=flat-square&logo=github)](https://github.com/Baka-SU/BakaSU) |
 | **Magic-KSU** | 5ec1cff | [![GitHub](https://img.shields.io/badge/GitHub-5ec1cff-blue?style=flat-square&logo=github)](https://github.com/5ec1cff/KernelSU) |
 | **SUSFS** | simonpunk | [![GitLab](https://img.shields.io/badge/GitLab-simonpunk-orange?style=flat-square&logo=gitlab)](https://gitlab.com/simonpunk/susfs4ksu.git) |
 | **SUSFS Module** | sidex15 | [![GitHub](https://img.shields.io/badge/GitHub-sidex15-blue?style=flat-square&logo=github)](https://github.com/sidex15) |

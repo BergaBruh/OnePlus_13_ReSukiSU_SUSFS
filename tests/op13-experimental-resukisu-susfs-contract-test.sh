@@ -22,7 +22,7 @@ expected = {
     "manifest": "manifests/oos16/oneplus_13_global_6.6.118_w.xml",
     "kernel_common": "e1b346b6b4f4096eb342ae3684838a942fd6f6c4",
     "kernel_modules": "d50b305f7da9e14715a25120a4ac7b1a4b8b97c3",
-    "resukisu": "9d0ff6aea9e25fc7dd26f4643175a41f68375e5e",
+    "resukisu": "8450dd287ef6ee25ca2b6b858b43c9354c73060c",
     "susfs": "937215cb3a1b1f333d764c366c7a49972fa8e7a0",
 }
 
@@ -49,6 +49,9 @@ if target.get("config") != expected["config"]:
 if target.get("manifest") != expected["manifest"]:
     raise SystemExit("experimental state must pin the matching OP13 Global manifest")
 
+if target.get("requested_firmware_version") != "16.0.10.600" or target.get("source_fallback") is not True:
+    raise SystemExit("experimental state must explicitly record the firmware source fallback")
+
 sources = state.get("sources", {})
 for source_name, sha_key in [
     ("kernel_common", "kernel_common"),
@@ -60,7 +63,7 @@ for source_name, sha_key in [
     if source.get("sha") != expected[sha_key]:
         raise SystemExit(f"experimental state must pin {source_name} to {expected[sha_key]}")
 
-if sources.get("resukisu", {}).get("repository") != "ReSukiSU/ReSukiSU":
+if sources.get("resukisu", {}).get("repository") != "Baka-SU/BakaSU":
     raise SystemExit("experimental state must identify the ReSukiSU repository")
 if sources.get("susfs", {}).get("repository") != "https://gitlab.com/simonpunk/susfs4ksu":
     raise SystemExit("experimental state must identify the SUSFS repository")

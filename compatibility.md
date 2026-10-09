@@ -1,4 +1,14 @@
 # Compatibility of OnePlus Kernels
+## OnePlus 13 Global source baseline
+
+For the requested OxygenOS 16.0.10.600 update, the latest available official
+sources are **16.0.9.401(EX01)**. The selected Global config is
+`configs/oos16/OP13-GLOBAL-6.6.118.json` with **6.6.118 / android15 KMI**.
+The synchronization commits explicitly list CPH2649 and CPH2653; they do not
+establish support for CPH2655 on this source release. Compilation and boot
+validation of the updated root/SUSFS pair are pending, and support for
+16.0.10.600 has not been established. See [source evidence](docs/op13-upstream-update.md).
+
 ## 1. OnePlus Devices
 
 <table>

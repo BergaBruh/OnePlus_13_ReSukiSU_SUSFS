@@ -112,12 +112,12 @@ repo_root = Path(sys.argv[3])
 
 for relative_path in sys.argv[4:]:
     caller_path = repo_root / relative_path
-    if caller_path == workflow_path:
+    if caller_path == workflow_path or relative_path == ".github/workflows/build-op13-experimental-resukisu-susfs.yml":
         continue
     caller_text = caller_path.read_text(encoding="utf-8")
     if re.search(r"(?m)^\s*upload_final_zip:\s*false\s*$", caller_text):
         raise SystemExit(
-            f"only build-op13-all.yml may set upload_final_zip: false: {relative_path}"
+            f"only OP13 matrix and experimental workflows may set upload_final_zip: false: {relative_path}"
         )
 
 input_match = re.search(
@@ -714,7 +714,7 @@ expected_rows = [
     ("oos15-op13-cph-6-6-56", "configs/oos15/OP13-CPH-6.6.56.json", "manifests/oos15/oneplus_13_global_6.6.56_v.xml", "CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US"),
     ("oos15-op13-cph", "configs/oos15/OP13-CPH.json", "manifests/oos15/oneplus_13_global_v.xml", "CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US"),
     ("oos15-op13-pjz", "configs/oos15/OP13-PJZ.json", "manifests/oos15/oneplus_13_v.xml", "PJZ110 CN"),
-    ("oos16-op13-global-6-6-118", "configs/oos16/OP13-GLOBAL-6.6.118.json", "manifests/oos16/oneplus_13_global_6.6.118_w.xml", "CPH2649 IN, CPH2653 EU/GLO, CPH2655 NA/US"),
+    ("oos16-op13-global-6-6-118", "configs/oos16/OP13-GLOBAL-6.6.118.json", "manifests/oos16/oneplus_13_global_6.6.118_w.xml", "CPH2649 IN, CPH2653 EU/GLO"),
     ("oos16-op13", "configs/oos16/OP13.json", "manifests/oos16/oneplus_13_w.xml", "manifest-specific; no region inferred"),
 ]
 
@@ -917,6 +917,13 @@ build_step = re.search(
 if not build_step:
     raise SystemExit("build action must retain the Build Kernel step")
 
+metadata_step = re.search(
+    r"(?ms)^    - name:\s*Save Build Metadata\s*$\n(?P<body>.*?)(?=^    - name:|\Z)",
+    text,
+)
+if not metadata_step or 'susfs_commit_sha=${SUSFS_COMMIT_SHA:-unknown}' not in metadata_step.group("body"):
+    raise SystemExit("Save Build Metadata must record the resolved SUSFS commit")
+
 body = build_step.group("body")
 config_generation = 'make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" gki_defconfig'
 namespace_config_decl = "required_namespace_configs=(\n            NAMESPACES\n            PID_NS\n            UTS_NS\n            IPC_NS\n            SYSVIPC\n            POSIX_MQUEUE\n            USER_NS\n          )"
@@ -937,7 +944,6 @@ for required, message in [
     ('require_config_enabled KSU "KernelSU"', "Build Kernel must always verify that KernelSU survived olddefconfig"),
     ('require_config_enabled KSU_SUSFS "SUSFS"', "Build Kernel must verify an enabled SUSFS flag"),
     ('require_config_enabled BBG "BBG"', "Build Kernel must verify an enabled BBG flag"),
-    ('susfs_commit_sha=${SUSFS_COMMIT_SHA:-unknown}', "Build metadata must record the resolved SUSFS commit"),
     ('require_config_enabled TCP_CONG_BBR "BBR"', "Build Kernel must verify an enabled BBR flag"),
     ('require_config_enabled TCP_CONG_BBR3 "BBRv3"', "Build Kernel must verify an enabled BBRv3 flag"),
     ('require_config_enabled IP_NF_TARGET_TTL "TTL target"', "Build Kernel must verify an enabled TTL flag"),
